@@ -1,0 +1,22 @@
+# secrets
+.env
+.env.local
+.env.*.local
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+*.sqlite
+*.sqlite3
+
+# node / next
+node_modules/
+web/.next/
+web/out/
+web/node_modules/
+
+# os
+.DS_Store
