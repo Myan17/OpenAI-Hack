@@ -54,6 +54,15 @@ def test_recognized_read_allows() -> None:
     assert verdict.matched_rule == "reversible"
 
 
+def test_read_from_unapproved_database_table_halts() -> None:
+    verdict = enforce(
+        DbAction(args=DbArgs(sql="SELECT * FROM users")), policy(), EnforcementContext()
+    )
+
+    assert verdict.decision == Decision.HALT
+    assert verdict.matched_rule == "allowed_db_tables"
+
+
 def test_database_table_outside_scope_halts() -> None:
     verdict = enforce(
         DbAction(args=DbArgs(sql="DELETE FROM users")), policy(), EnforcementContext()

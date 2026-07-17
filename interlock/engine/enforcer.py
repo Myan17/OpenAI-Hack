@@ -60,6 +60,23 @@ def enforce(
 
     reversibility = classify(action)
     if reversibility == Reversibility.REVERSIBLE:
+        if isinstance(action, DbAction):
+            if not db_op_allowed(action.args.sql, policy.allowed_db_ops):
+                return _verdict(
+                    Decision.HALT,
+                    reversibility,
+                    "The database operation is not authorized by the policy.",
+                    "allowed_db_ops",
+                    action,
+                )
+            if not db_table_allowed(action.args.sql, policy.allowed_db_tables):
+                return _verdict(
+                    Decision.HALT,
+                    reversibility,
+                    "The database table is not authorized by the policy.",
+                    "allowed_db_tables",
+                    action,
+                )
         return _verdict(
             Decision.ALLOW,
             reversibility,
