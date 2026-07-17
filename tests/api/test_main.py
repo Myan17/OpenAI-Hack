@@ -46,7 +46,7 @@ def test_confirmed_run_launches_injected_agent_runner(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json() == {"accepted": True, "run_id": 1, "message": "Agent run started."}
     assert calls == [("inspect sessions", "inspect the schema", tmp_path / "sandbox")]
-    assert client.get("/runs").json() == [{"id": 1, "status": "completed", "detail": "completed"}]
+    assert client.get("/runs").json() == [{"id": 1, "status": "completed", "detail": "Agent run completed."}]
 
 
 def test_failed_agent_run_is_recorded_without_exposing_exception(tmp_path: Path) -> None:

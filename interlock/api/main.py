@@ -158,11 +158,11 @@ async def _execute_agent_run(
     """Run the agent and record a durable terminal state without exposing exception details."""
 
     try:
-        result = await runner(policy, prompt, event_log, sandbox_root)
+        await runner(policy, prompt, event_log, sandbox_root)
     except Exception:
         event_log.finish_run(run_id, "failed", "Agent run failed; inspect server logs for details.")
     else:
-        event_log.finish_run(run_id, "completed", result)
+        event_log.finish_run(run_id, "completed", "Agent run completed.")
 
 
 # The default development server keeps all demo state in a local temporary directory.
