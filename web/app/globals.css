@@ -9,6 +9,7 @@ h2 { margin-top: 0; }
 label { display: block; font-weight: 700; margin-bottom: .5rem; }
 textarea, pre { width: 100%; background: #090e1c; border: 1px solid #3a4a73; border-radius: 8px; color: inherit; padding: .8rem; }
 textarea { min-height: 7rem; font: inherit; resize: vertical; }
+.policy-json { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 18rem; margin-top: .5rem; }
 pre { overflow: auto; font-size: .8rem; }
 .actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .8rem; }
 .attack-toggle { color: #ffc857; display: block; font-weight: 700; margin-top: 1rem; }

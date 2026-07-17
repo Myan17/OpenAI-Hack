@@ -24,6 +24,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 export default function Page() {
   const [task, setTask] = useState("Inspect the database schema and stale sessions.");
   const [draft, setDraft] = useState<Policy | null>(null);
+  const [policyJson, setPolicyJson] = useState("");
   const [events, setEvents] = useState<VerdictEvent[]>([]);
   const [status, setStatus] = useState("Draft a least-privilege policy to begin.");
   const [busy, setBusy] = useState(false);
@@ -42,6 +43,7 @@ export default function Page() {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task }),
       });
       setDraft(policy);
+      setPolicyJson(JSON.stringify(policy, null, 2));
       setStatus("Review the generated policy, then explicitly confirm it.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not draft a policy.");
@@ -52,12 +54,14 @@ export default function Page() {
     if (!draft) return;
     setBusy(true);
     try {
+      const editedPolicy = JSON.parse(policyJson) as Policy;
       await requestJson<Policy>("/policy", {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, confirmed: true }),
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...editedPolicy, confirmed: true }),
       });
+      setDraft(editedPolicy);
       setStatus("Policy confirmed. Every tool call is now enforced deterministically.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not confirm the policy.");
+      setStatus(error instanceof Error ? error.message : "Policy must be valid JSON before it can be confirmed.");
     } finally { setBusy(false); }
   }
 
@@ -88,7 +92,7 @@ export default function Page() {
       </div>
       <label className="attack-toggle"><input type="checkbox" checked={injectAttack} onChange={(event) => setInjectAttack(event.target.checked)} /> Inject attack prompt</label>
       <p className="status" aria-live="polite">{status}</p>
-      {draft && <pre aria-label="Policy draft">{JSON.stringify(draft, null, 2)}</pre>}
+      {draft && <><label htmlFor="policy-json">Editable policy draft</label><textarea id="policy-json" className="policy-json" value={policyJson} onChange={(event) => setPolicyJson(event.target.value)} /></>}
     </section>
     <section className="panel"><h2>Live verdicts</h2>
       {events.length === 0 ? <p>No tool calls yet.</p> : events.map((event) => <article key={event.id} className={event.decision}>
