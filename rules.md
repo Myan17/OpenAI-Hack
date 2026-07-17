@@ -15,14 +15,16 @@ what/why; this is the what-you-must-not-do).
 2. **Fail closed.** Unknown tools, `UNKNOWN` reversibility, malformed input, and any branch the
    logic doesn't explicitly allow all resolve to **HALT**. When in doubt, block. The intent
    compiler's failure fallback is a **deny-all** policy, never an allow-all.
-3. **Never gate reversible actions.** Reversible, in-scope actions always ALLOW and flow at full
-   speed. Halting benign work recreates the approval-fatigue failure we exist to fix. Only
-   actions that are *both* irreversible *and* out-of-intent may be halted.
+3. **Do not approve-gate known, policy-authorized reads.** A recognized read-only action from an
+   allowed tool flows at full speed. Unknown, malformed, disallowed, or explicitly forbidden
+   actions are never presumed reversible: they HALT. Irreversible actions within scope require
+   an explicit approval decision; irreversible actions outside scope HALT.
 
 ## Stack — required
 
 - **Python 3.13.** Type hints on every function. **Pydantic v2** models at every API/tool/agent
-  boundary — no bare dicts crossing a boundary.
+  boundary — use discriminated, typed action payloads rather than a bare `dict` crossing the
+  boundary.
 - **pytest** for all tests. **TDD is mandatory:** failing test first, then implementation.
 - **FastAPI** for the backend. **SQLite** for the event log and sandbox DB.
 - **OpenAI Agents SDK + GPT-5.6** for the demo agent and the one-shot intent compiler. This is
@@ -39,8 +41,8 @@ what/why; this is the what-you-must-not-do).
   based and deterministic. This is a design commitment, not a shortcut.
 - **No raw scraping/browser automation** (Playwright/Puppeteer/requests-scraping). Not needed.
 - **No second database** (no Redis, no Postgres for the hackathon). SQLite only.
-- **No websocket framework.** Live updates are **SSE** from FastAPI. (Approval waits use
-  `asyncio.Event` in-process.)
+- **No websocket framework.** Live updates are **SSE** from FastAPI. Resumable approval state is
+  persisted with the agent run; do not rely on a process-local wait.
 
 ## Determinism & purity
 
@@ -58,10 +60,12 @@ what/why; this is the what-you-must-not-do).
   `node_modules`, `.next`, `*.sqlite`, `__pycache__` **before the first commit** of each area.
 - The sandbox tools (`interlock/tools/sandbox.py`) act ONLY on a local temp SQLite DB, a temp
   directory under `/tmp/demo/`, and an in-memory ledger. They must never touch real files
-  outside the sandbox, real networks, or real money. That is the whole point — they are
-  dangerous *within a sandbox* so the breaker has something real to stop.
-- Forbidden patterns and scope globs are the safety net; the sandbox boundary is the backstop.
-  Both must hold.
+  outside the sandbox, real networks, or real money. Do not expose a general shell: use typed
+  sandbox operations or a strict read-only command allowlist. The sandbox independently checks
+  canonical paths and allowed database objects; it is the backstop, not the policy's only guard.
+- Paths are checked by canonical containment beneath approved sandbox roots, never by textual
+  glob matching alone. SQL is accepted only as one parsed/validated statement; unrecognized or
+  multi-statement input HALTs.
 
 ## Testing & CI
 
@@ -89,13 +93,15 @@ do not assume:**
   `guarded_call` can gate it *before* the tool executes (this seam is load-bearing for the whole
   project);
 - the **structured-output** mechanism used by `compile_policy`.
-Record the confirmed model id in `.env.example`. If the SDK cannot expose a pre-execution
-interception point, fall back to registering each tool handler as a `guarded_call` wrapper (the
-handler itself calls `enforce` before doing anything) — never let a tool run unguarded.
+Record the confirmed model id in `.env.example`. The current Agents SDK supports custom
+`FunctionTool` handlers whose `on_invoke_tool` callback receives arguments before an effect, and
+per-call `needs_approval`. Still implement the handler itself as the enforcement boundary: it
+validates into a typed action, calls `enforce`, records a verdict, and dispatches only on ALLOW.
+Never rely on an observation hook that runs after execution.
 
 ## Scope discipline
 
 Build in plan order. Do not start agent/UI work until Phase A (the pure engine) is green. If
-time runs short, cut in this order: frontend polish → escalation flow → intent compiler
-(hand-author a policy instead). **Never cut the engine or the eval gate** — they are the
-submission.
+time runs short, cut in this order: frontend polish → resumable escalation → intent compiler
+(hand-author a policy instead). **Never cut typed enforcement, the sandbox boundary, or the eval
+gate** — they are the submission.

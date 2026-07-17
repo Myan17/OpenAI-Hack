@@ -4,7 +4,7 @@
 >
 > **Before writing any code, read `rules.md` and `AGENTS.md` at the repo root. Every task.**
 
-**Goal:** Build Interlock — a runtime circuit breaker that deterministically halts irreversible, out-of-intent actions proposed by an autonomous AI agent, with a live decision feed and a CI-verified eval gate.
+**Goal:** Build Interlock — a runtime circuit breaker that permits known, policy-authorized reads, escalates in-policy irreversible actions, and deterministically halts unknown, forbidden, or out-of-policy actions proposed by an autonomous AI agent.
 
 **Architecture:** A pure-Python deterministic enforcement engine (catalog → reversibility classifier → policy enforcer) is wrapped around an OpenAI Agents SDK agent's tool execution. Every decision is appended to an event log exposed over FastAPI+SSE and rendered live in a Next.js frontend. An LLM (GPT-5.6) only ever *drafts* a policy once, up front; it is never in the enforcement path.
 
@@ -12,26 +12,24 @@
 
 ## Global Constraints
 
-- Python **3.13**; type hints on every function; Pydantic v2 models at all API/tool boundaries.
+- Python **3.13**; type hints on every function; Pydantic v2 discriminated action payloads at every API/tool boundary (no bare `dict` action arguments).
 - The enforcement package (`interlock/engine/`) MUST import no network/LLM/HTTP client. A test enforces this.
 - Enforcer is **fail-closed**: `UNKNOWN` reversibility and any unmatched branch resolve to `HALT`.
 - TDD: every logic task writes the failing test first. Commit after every green step.
-- No LangGraph, no ML-based classifiers, no raw scraping tools. See `rules.md`.
+- No LangGraph, no ML-based classifiers, no raw scraping tools, and no unrestricted shell tool. See `rules.md`.
 - Frontend: Server Components by default; client components only for the live feed. Tailwind + shadcn/ui only.
 - Never commit secrets. `.env` is gitignored; `.env.example` is the committed template.
 
 ---
 
-## Phasing (6 days, solo)
+## Phasing (four days remaining, solo)
 
-- **Day 1 — Phase A:** Deterministic engine (Tasks 1–6). The defensible core. No LLM, no network.
-- **Day 2 — Phase B:** Agent + dangerous tools + interception seam + intent compiler (Tasks 7–11).
-- **Day 3 — Phase C:** FastAPI, event log, SSE feed, escalation approve/reject (Tasks 12–15).
-- **Day 4 — Phase D:** Next.js frontend — live feed, policy panel, attack trigger (Tasks 16–19).
-- **Day 5 — Phase E:** Eval harness, golden scenarios, CI gate, LangFuse tracing (Tasks 20–23).
-- **Day 6 — Phase F:** Demo hardening, recorded fallback, README, video, Codex session capture (Task 24).
+- **Day 1 — Core proof:** Tasks 1–6 plus Tasks 7–8. Finish the typed engine, contained sandbox, and local end-to-end test before any model, API, or UI work.
+- **Day 2 — Runnable agent proof:** Tasks 9–11 and the eval harness (Tasks 20–21). Keep a hand-authored policy fallback.
+- **Day 3 — Demo surface:** Tasks 12–14 and the minimal live UI (Tasks 16–19). A policy must be confirmed server-side before a run starts.
+- **Day 4 — Submission proof:** CI, docs, demo rehearsal, and video (Tasks 22–24). Add tracing only if the critical path is green.
 
-Cut order if behind: frontend polish → escalation flow → intent compiler (hand-author the policy) → **never cut the engine or the eval gate.**
+Cut order if behind: frontend polish → resumable escalation → intent compiler (hand-author a policy instead) → tracing. **Never cut typed enforcement, sandbox containment, or the eval gate.**
 
 ---
 
@@ -44,7 +42,7 @@ Cut order if behind: frontend polish → escalation flow → intent compiler (ha
 - Test: `tests/engine/test_models.py`
 
 **Interfaces:**
-- Produces: enums `Reversibility{REVERSIBLE,IRREVERSIBLE,UNKNOWN}`, `Decision{ALLOW,HALT,ESCALATE}`; models `Policy`, `ProposedAction`, `Verdict` exactly as in the design spec §5.
+- Produces: enums `Reversibility{REVERSIBLE,IRREVERSIBLE,UNKNOWN}`, `Decision{ALLOW,HALT,ESCALATE}`; typed action payloads; `Policy` with `allowed_roots`, `allowed_db_ops`, `allowed_db_tables`, and `spend_cap_cents`; `EnforcementContext(spent_cents)`; and `Verdict`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -53,14 +51,15 @@ Cut order if behind: frontend polish → escalation flow → intent compiler (ha
 from interlock.engine.models import Policy, ProposedAction, Reversibility, Decision
 
 def test_policy_defaults_are_failsafe():
-    p = Policy(task="t", allowed_tools=set(), allowed_paths=[], allowed_db_ops=set(),
+    p = Policy(task="t", allowed_tools=set(), allowed_roots=[], allowed_db_ops=set(),
+              allowed_db_tables=set(),
               spend_cap_cents=0, forbidden_patterns=[])
     assert p.spend_cap_cents == 0
     assert "DROP" not in p.allowed_db_ops
 
 def test_proposed_action_roundtrip():
-    a = ProposedAction(tool="bash", args={"cmd": "ls"})
-    assert a.tool == "bash" and a.args["cmd"] == "ls"
+    a = ProposedAction(tool="db", args={"sql": "SELECT * FROM sessions"})
+    assert a.tool == "db" and a.args.sql == "SELECT * FROM sessions"
 ```
 
 - [ ] **Step 2: Run test to verify it fails** — `pytest tests/engine/test_models.py -v` → FAIL (module missing).
@@ -76,34 +75,34 @@ def test_proposed_action_roundtrip():
 
 **Interfaces:**
 - Consumes: `Reversibility` from Task 1.
-- Produces: `classify(tool: str, args: dict) -> Reversibility`. Registry maps tool name → classifier fn. Built-in classifiers for `bash`, `db`, `transfer`, `fs_write`, `git`. Unknown tool → `UNKNOWN`.
+- Produces: `classify(action: ProposedAction) -> Reversibility`. Built-in typed tools are `db`, `transfer`, `fs_write`, and an optional strict read-only `inspect`; unknown tools and unrecognized command/SQL shapes return `UNKNOWN`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # tests/engine/test_catalog.py
 from interlock.engine.catalog import classify
-from interlock.engine.models import Reversibility as R
+from interlock.engine.models import ProposedAction, Reversibility as R
 
-def test_bash_read_is_reversible():
-    assert classify("bash", {"cmd": "ls -la"}) == R.REVERSIBLE
+def test_typed_db_read_is_reversible():
+    assert classify(ProposedAction(tool="db", args={"sql": "SELECT * FROM sessions"})) == R.REVERSIBLE
 
-def test_bash_rm_rf_is_irreversible():
-    assert classify("bash", {"cmd": "rm -rf build/"}) == R.IRREVERSIBLE
+def test_unknown_or_multi_statement_sql_is_unknown():
+    assert classify(ProposedAction(tool="db", args={"sql": "SELECT 1; DROP TABLE users"})) == R.UNKNOWN
 
 def test_db_select_reversible_drop_irreversible():
-    assert classify("db", {"sql": "SELECT * FROM users"}) == R.REVERSIBLE
-    assert classify("db", {"sql": "DROP TABLE users"}) == R.IRREVERSIBLE
+    assert classify(ProposedAction(tool="db", args={"sql": "SELECT * FROM users"})) == R.REVERSIBLE
+    assert classify(ProposedAction(tool="db", args={"sql": "DROP TABLE users"})) == R.IRREVERSIBLE
 
 def test_transfer_always_irreversible():
-    assert classify("transfer", {"cents": 1}) == R.IRREVERSIBLE
+    assert classify(ProposedAction(tool="transfer", args={"cents": 1, "to": "x"})) == R.IRREVERSIBLE
 
 def test_unknown_tool_is_unknown():
-    assert classify("teleport", {}) == R.UNKNOWN
+    assert classify(ProposedAction(tool="teleport", args={})) == R.UNKNOWN
 ```
 
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement `catalog.py`.** Classifiers use conservative pattern rules: `bash` irreversible if cmd matches any of `rm -rf`, `rm -r`, `>`, `dd `, `mkfs`, `git push --force`, `kill`, `shutdown`; else reversible. `db` reversible only for statements whose leading keyword is in `{SELECT, EXPLAIN, WITH...SELECT}`; `DROP/DELETE/UPDATE/TRUNCATE/ALTER/INSERT` → irreversible. `transfer` always irreversible. `fs_write`/`git` irreversible. Leading-keyword parse is uppercase-normalized and whitespace-stripped.
+- [ ] **Step 3: Implement `catalog.py`.** Do not use a shell denylist. `inspect` is reversible only for a small allowlist of typed read operations. For SQL, accept exactly one validated statement and treat only a recognized read query as reversible; comments, multiple statements, CTEs not proven read-only, and unsupported syntax are `UNKNOWN`. `transfer` and `fs_write` are irreversible.
 - [ ] **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit** — `git commit -am "feat(engine): reversibility classifiers for built-in tools"`.
 
@@ -141,10 +140,10 @@ def test_no_match_returns_none():
 - Test: `tests/engine/test_scope.py`
 
 **Interfaces:**
-- Produces: `path_in_scope(path, allowed_globs) -> bool` (uses `fnmatch`), `db_op_allowed(sql, allowed_ops) -> bool` (leading-keyword parse, shared helper with catalog — factor into `interlock/engine/sqlkw.py: leading_keyword(sql)->str`), `within_spend(cents, cap) -> bool`.
+- Produces: `path_in_scope(path, allowed_roots) -> bool` using canonical containment beneath an approved sandbox root; `db_op_allowed` and `db_table_allowed` over validated SQL; and `within_spend(spent_cents, requested_cents, cap) -> bool`.
 
-- [ ] **Step 1: Write failing tests** for: `/tmp/demo/x` in `["/tmp/demo/*"]` True; `/etc/passwd` False; `DELETE` not in `{"SELECT"}` False; `600 <= 500` False. (Write all four asserts.)
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement** `sqlkw.py` + `scope.py`; refactor `catalog.py` to use `leading_keyword`. **Step 4: Run all engine tests** → PASS. **Step 5: Commit** — `git commit -am "feat(engine): scope checks for paths, db ops, spend"`.
+- [ ] **Step 1: Write failing tests** for canonical traversal (`/tmp/demo/../outside` false), symlink escape false, a permitted `DELETE` on `sessions` true, the same operation on `users` false, multi-statement SQL false, and cumulative spend over cap false.
+- [ ] **Step 2: Run** → FAIL. **Step 3: Implement** `sqlkw.py` + `scope.py`; use parameterized SQL in the sandbox. **Step 4: Run all engine tests** → PASS. **Step 5: Commit** — `feat(engine): canonical scope and cumulative-budget checks`.
 
 ### Task 5: Policy enforcer (the core)
 
@@ -154,43 +153,43 @@ def test_no_match_returns_none():
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: `enforce(action: ProposedAction, policy: Policy) -> Verdict`, implementing the six-step rule sequence in design spec §6 exactly, in that order.
+- Produces: `enforce(action: ProposedAction, policy: Policy, context: EnforcementContext) -> Verdict`, implementing design spec §6 exactly. The caller supplies an immutable spent-budget snapshot, preserving deterministic inputs.
 
 - [ ] **Step 1: Write the failing test** (one assert per rule branch)
 
 ```python
 # tests/engine/test_enforcer.py
 from interlock.engine.enforcer import enforce
-from interlock.engine.models import Policy, ProposedAction, Decision, Reversibility
+from interlock.engine.models import Policy, ProposedAction, EnforcementContext, Decision, Reversibility
 
 def P(**kw):
-    base = dict(task="t", allowed_tools={"bash","db"}, allowed_paths=["/tmp/demo/*"],
-                allowed_db_ops={"SELECT","INSERT"}, spend_cap_cents=0, forbidden_patterns=[r"rm -rf /"])
+    base = dict(task="t", allowed_tools={"db","fs_write","transfer"}, allowed_roots=["/tmp/demo"],
+                allowed_db_ops={"SELECT","DELETE"}, allowed_db_tables={"sessions"},
+                spend_cap_cents=500, forbidden_patterns=[r"DROP\\s+TABLE"])
     base.update(kw); return Policy(**base)
 
 def test_tool_not_allowed_halts():
-    v = enforce(ProposedAction(tool="transfer", args={"cents":100}), P())
+    v = enforce(ProposedAction(tool="transfer", args={"cents":100, "to":"x"}), P(), EnforcementContext())
     assert v.decision == Decision.HALT and v.matched_rule == "allowed_tools"
 
 def test_forbidden_pattern_halts_before_reversibility():
-    v = enforce(ProposedAction(tool="bash", args={"cmd":"rm -rf /"}), P())
+    v = enforce(ProposedAction(tool="db", args={"sql":"DROP TABLE users"}), P(), EnforcementContext())
     assert v.decision == Decision.HALT and v.matched_rule.startswith("forbidden_pattern")
 
 def test_reversible_allows():
-    v = enforce(ProposedAction(tool="bash", args={"cmd":"ls"}), P())
+    v = enforce(ProposedAction(tool="db", args={"sql":"SELECT * FROM sessions"}), P(), EnforcementContext())
     assert v.decision == Decision.ALLOW and v.reversibility == Reversibility.REVERSIBLE
 
 def test_db_drop_out_of_ops_halts():
-    v = enforce(ProposedAction(tool="db", args={"sql":"DELETE FROM users"}), P())
-    assert v.decision == Decision.HALT and v.matched_rule == "allowed_db_ops"
+    v = enforce(ProposedAction(tool="db", args={"sql":"DELETE FROM users"}), P(), EnforcementContext())
+    assert v.decision == Decision.HALT and v.matched_rule == "allowed_db_tables"
 
 def test_irreversible_in_scope_escalates():
-    v = enforce(ProposedAction(tool="db", args={"sql":"INSERT INTO users VALUES(1)"}),
-                P(allowed_db_ops={"SELECT","INSERT"}))
+    v = enforce(ProposedAction(tool="db", args={"sql":"DELETE FROM sessions WHERE id=1"}), P(), EnforcementContext())
     assert v.decision == Decision.ESCALATE and v.matched_rule == "irreversible_in_scope"
 
 def test_unknown_tool_fails_closed():
-    v = enforce(ProposedAction(tool="teleport", args={}), P(allowed_tools={"teleport"}))
+    v = enforce(ProposedAction(tool="teleport", args={}), P(allowed_tools={"teleport"}), EnforcementContext())
     assert v.decision == Decision.HALT   # UNKNOWN reversibility → fail closed
 ```
 
@@ -215,7 +214,7 @@ def test_unknown_tool_fails_closed():
 - Test: `tests/tools/test_sandbox.py`
 
 **Interfaces:**
-- Produces: `run_bash(cmd)`, `run_db(sql)` (against a per-session SQLite file seeded with `users`,`sessions`), `transfer(cents, to)` (mutates an in-memory ledger), `fs_write(path, content)`, all returning `dict`. These are the *real* effects the enforcer guards. Each takes effect ONLY when called — the interceptor decides whether to call them.
+- Produces: `run_db(sql)`, `transfer(cents, to)`, and `fs_write(path, content)`, all against a session-local sandbox. The sandbox independently rejects paths outside its resolved root and database objects outside its declared fixture. It never invokes a general shell.
 
 - [ ] Steps: failing test that `run_db("SELECT count(*) FROM users")` returns a row and that `transfer(100,"x")` reduces the ledger; implement against a seeded temp SQLite; run → PASS; commit `feat(tools): sandbox tools with real local effects`.
 
@@ -226,8 +225,8 @@ def test_unknown_tool_fails_closed():
 - Test: `tests/test_interceptor.py`
 
 **Interfaces:**
-- Consumes: `enforce`, sandbox tools, an `EventSink` protocol (`emit(verdict: Verdict) -> None`).
-- Produces: `guarded_call(action, policy, sink) -> dict`. On `ALLOW` → dispatch to the real tool and return its result. On `HALT` → return `{"blocked": True, "reason": ...}` WITHOUT dispatching. On `ESCALATE` → block pending approval (Task 15 supplies the wait; for now treat as HALT with `escalated=True`). Always `sink.emit(verdict)` first.
+- Consumes: `enforce`, sandbox tools, immutable enforcement context, and an `EventSink` protocol whose `emit(verdict)` returns an event ID.
+- Produces: `async guarded_call(action, policy, context, sink) -> dict`. It validates the action before dispatch; emits exactly one verdict first; executes only on ALLOW; returns a refusal on HALT; and returns a pending approval object containing the event ID on ESCALATE. Budget reservation happens atomically with a successful transfer.
 
 - [ ] Steps: failing test asserting a `HALT` verdict never invokes the underlying tool (spy/mock), an `ALLOW` does, and `sink.emit` is called exactly once per call. Implement. Run → PASS. Commit `feat: guarded tool interceptor`.
 
@@ -240,8 +239,8 @@ def test_unknown_tool_fails_closed():
 **Interfaces:**
 - Produces: `build_agent(policy, sink)` returning an agent whose tool handlers are the sandbox tools **wrapped by `guarded_call`**, and `run_agent(agent, prompt) -> transcript`.
 
-- [ ] **VERIFY FIRST:** confirm GPT-5.6 model id + Agents SDK tool-call interception seam against current OpenAI docs (see `rules.md` §"Verify before coding"). Record the exact model id in `.env.example`.
-- [ ] Steps: implement wiring; smoke test behind `@pytest.mark.skipif(no key)` that the agent completes a trivial reversible task; commit `feat: agent wired through the interceptor`.
+- [x] **Verified 2026-07-17:** the `gpt-5.6` alias routes to `gpt-5.6-sol`; `gpt-5.6-terra` is a lower-cost option. Custom `FunctionTool.on_invoke_tool` handlers receive arguments before the effect; `needs_approval` supports per-call approvals. Record the selected model in `.env.example` and keep the handler, not a lifecycle observation hook, as the hard gate.
+- [ ] Steps: implement wrapped custom `FunctionTool` handlers; smoke test behind `@pytest.mark.skipif(no key)` that an allowed read runs and a disallowed write never reaches its sandbox function; commit `feat: agent wired through the interceptor`.
 
 ### Task 10: Intent compiler (GPT-5.6 → Policy, one-shot)
 
@@ -268,13 +267,13 @@ def test_unknown_tool_fails_closed():
 ### Task 12: Event log (append-only, SQLite)
 
 **Files:** Create `interlock/api/eventlog.py`; Test `tests/api/test_eventlog.py`.
-**Interfaces:** Produces `EventLog(db_path)` with `append(verdict) -> int` (returns id), `since(event_id) -> list[dict]`, implementing the `EventSink` protocol. Each row: id, ts (ISO, passed in — no `Date.now` inside pure code), tool, decision, reversibility, reason, matched_rule, args_json.
+**Interfaces:** Produces `EventLog(db_path)` with `append(verdict) -> int` (returns the escalation/event id), `since(event_id) -> list[dict]`, implementing `EventSink`. Each row: id, ts, tool, decision, reversibility, reason, matched_rule, args_json.
 - [ ] Steps: failing test that `append` then `since(0)` returns the row; implement; PASS; commit `feat(api): append-only event log`.
 
 ### Task 13: FastAPI app + policy + run endpoints
 
 **Files:** Create `interlock/api/main.py`; Test `tests/api/test_main.py` (use `TestClient`).
-**Interfaces:** `POST /policy` (body: `{task}` → compiled Policy, returned for human confirm), `PUT /policy` (human-edited Policy), `POST /run` (body `{prompt}` → kicks the agent in a background task, streaming verdicts to the event log), `GET /events?since=` (poll fallback).
+**Interfaces:** `POST /policy` (task → unconfirmed drafted policy), `PUT /policy` (validated human-edited policy and explicit confirmation), `POST /run` (rejects unless a confirmed policy exists, then starts the agent), `GET /events?since=` (poll fallback).
 - [ ] Steps: failing `TestClient` test for `POST /policy` returns a Policy JSON and `GET /events?since=0` returns `[]` initially; implement; PASS; commit `feat(api): policy + run + events endpoints`.
 
 ### Task 14: SSE live feed
@@ -286,8 +285,8 @@ def test_unknown_tool_fails_closed():
 ### Task 15: Escalation approve/reject
 
 **Files:** Modify `interlock/api/main.py`, `interlock/interceptor.py`; Test `tests/api/test_escalation.py`.
-**Interfaces:** `POST /escalation/{id}/approve|reject`. Interceptor's `ESCALATE` path now awaits an `asyncio.Event` keyed by verdict id; approve resolves it to dispatch, reject resolves to block.
-- [ ] Steps: test that an escalated action stays blocked until approved, then dispatches; implement; PASS; commit `feat(api): human approve/reject for escalations`.
+**Interfaces:** `POST /escalation/{id}/approve|reject`. Implement only after the core demo is green, using the Agents SDK's resumable approval state; do not use a process-local wait that loses an action on restart.
+- [ ] Steps: test that an escalated action remains non-dispatched until approved, then resume the saved run state; implement; PASS; commit `feat(api): resumable human approval for escalations`.
 
 ---
 
@@ -318,7 +317,7 @@ def test_unknown_tool_fails_closed():
 
 ### Task 20: Golden scenario set
 **Files:** Create `eval/scenarios.yaml`; `eval/__init__.py`.
-**Interfaces:** ≥15 adversarial actions (each `{action, policy, expect: HALT}`) covering: rm -rf, DROP/DELETE, over-cap transfer, out-of-scope path write, disallowed tool, force-push, injection payloads; ≥10 benign (`expect: ALLOW`) covering reads, in-scope inserts, ls, in-budget no-op.
+**Interfaces:** ≥15 adversarial actions (each `{action, policy, context, expect: HALT}`) covering unknown tools, malformed payloads, multi-statement SQL, `DROP`, `DELETE users` when only `sessions` is allowed, cumulative over-cap transfer, traversal/symlink path escapes, and injection-originated requests; ≥10 benign actions covering typed reads, permitted `sessions` mutation, in-root file work, and in-budget no-op.
 - [ ] Steps: author the YAML; commit `test(eval): golden adversarial + benign scenario set`.
 
 ### Task 21: Eval runner + scorecard
@@ -355,6 +354,6 @@ def test_unknown_tool_fails_closed():
 ## Self-Review (completed)
 
 - **Spec coverage:** engine (T1–6), agent+tools+interception+intent (T7–11), API/log/feed/escalation (T12–15), frontend (T16–19), eval+CI+tracing (T20–23), demo/docs (T24) — every design-spec section maps to tasks. ✎
-- **Types:** `Reversibility`/`Decision`/`Policy`/`ProposedAction`/`Verdict` defined in T1 and used unchanged downstream; `enforce`, `classify`, `guarded_call`, `compile_policy`, `EventLog`, `run_eval` signatures are consistent across tasks.
+- **Types:** `Reversibility`/`Decision`/typed action payloads/`Policy`/`EnforcementContext`/`ProposedAction`/`Verdict` are defined in T1 and used unchanged downstream; `enforce`, `classify`, `guarded_call`, `compile_policy`, `EventLog`, and `run_eval` signatures are consistent across tasks.
 - **Determinism:** T6 purity guard + T23 "never trace inside engine" protect the core guarantee.
 - **Fail-closed:** enforcer default-deny (T5) and deny-all intent fallback (T10) both tested.

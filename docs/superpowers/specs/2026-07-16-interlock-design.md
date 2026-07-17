@@ -27,9 +27,10 @@ Three claims, each a deliberate departure from existing guardrail products:
 1. **Intent, not content.** We do not ask "is this text malicious." We ask "does this action
    match what the human actually asked for?" — a machine-checkable policy compiled from the
    task.
-2. **Gate only irreversible + out-of-intent.** Approval fatigue is the documented failure of
-   human-in-the-loop. Reversible actions always flow. We halt only actions that are *both*
-   irreversible *and* outside the compiled intent.
+2. **Keep known reads frictionless; fail closed elsewhere.** Approval fatigue is the documented
+   failure of human-in-the-loop, so recognized read-only actions from allowed tools flow without
+   approval. An unknown, malformed, disallowed, or forbidden action is never assumed safe:
+   it halts. Irreversible in-policy actions escalate; irreversible out-of-policy actions halt.
 3. **The verifier is deterministic.** If the checker is another LLM it inherits the same
    hallucination and injection it exists to stop. Enforcement is pure code over a typed
    policy. An LLM may *draft* the policy once, up front; it is never in the enforcement path.
@@ -40,8 +41,8 @@ Three claims, each a deliberate departure from existing guardrail products:
 - Deterministic enforcement engine: tool catalog, reversibility classifier, policy model,
   policy enforcer. Pure Python, no network, fully unit-tested.
 - Interception seam that wraps an agent's tool execution (OpenAI Agents SDK / GPT-5.6).
-- A demo agent with genuinely dangerous tools (shell, a real SQLite DB, a mock money-transfer
-  API, a git repo).
+- A demo agent with genuinely dangerous *sandboxed* capabilities: a real SQLite DB, scoped
+  filesystem mutations, and a mock money-transfer API. It does not expose an unrestricted shell.
 - Intent compiler: GPT-5.6 drafts a `Policy` from an NL task; human confirms once.
 - FastAPI backend with an append-only event log and a live decision feed (SSE) + human
   escalation approve/reject.
@@ -101,14 +102,18 @@ class ToolSpec(BaseModel):
 class Policy(BaseModel):
     task: str                        # original NL task, for the audit trail
     allowed_tools: set[str]          # tool names the agent may use at all
-    allowed_paths: list[str]         # glob patterns writable/deletable
-    allowed_db_ops: set[str]         # e.g. {"SELECT","INSERT"} — DROP/DELETE absent by default
+    allowed_roots: list[str]         # canonical sandbox roots writable/deletable
+    allowed_db_ops: set[str]         # e.g. {"SELECT","DELETE"}
+    allowed_db_tables: set[str]      # e.g. {"sessions"}; operations alone are insufficient
     spend_cap_cents: int             # 0 = no money moves allowed
     forbidden_patterns: list[str]    # regexes always halted (e.g. "rm -rf /", "DROP TABLE")
 
 class ProposedAction(BaseModel):
     tool: str
-    args: dict
+    args: TypedActionArgs            # discriminated Pydantic payload, never a bare dict
+
+class EnforcementContext(BaseModel):
+    spent_cents: int = 0             # immutable snapshot supplied by the caller
 
 class Verdict(BaseModel):
     decision: Decision
@@ -122,25 +127,25 @@ class Verdict(BaseModel):
 
 Given a `ProposedAction` and a `Policy`, the enforcer returns a `Verdict`:
 
-1. If `action.tool not in policy.allowed_tools` → **HALT** (`matched_rule="allowed_tools"`).
-2. If any `forbidden_patterns` regex matches the serialized action → **HALT**
-   (`matched_rule="forbidden_pattern:<pat>"`). Fail-closed, checked before reversibility.
-3. Compute `reversibility` via the tool's classifier.
-4. If `reversibility == REVERSIBLE` → **ALLOW** (`matched_rule="reversible"`).
-5. Action is IRREVERSIBLE or UNKNOWN. Check scope:
-   - filesystem write/delete outside `allowed_paths` → **HALT** (`matched_rule="allowed_paths"`)
-   - db op not in `allowed_db_ops` → **HALT** (`matched_rule="allowed_db_ops"`)
-   - money move exceeding `spend_cap_cents` → **HALT** (`matched_rule="spend_cap"`)
-   - irreversible but *within* policy scope → **ESCALATE** (`matched_rule="irreversible_in_scope"`)
-6. Default → **HALT** (fail-closed; `matched_rule="default_deny"`).
+1. Reject malformed payloads and unknown/disallowed tools → **HALT** (`allowed_tools` or
+   `malformed_action`).
+2. If any `forbidden_patterns` regex matches the stable serialized action → **HALT**
+   (`forbidden_pattern:<pat>`), before classification.
+3. Classify a typed action. A command, SQL statement, or action shape outside the conservative
+   recognized grammar is `UNKNOWN`, never reversible.
+4. A recognized read-only action from an allowed tool → **ALLOW** (`reversible`).
+5. For IRREVERSIBLE or UNKNOWN actions, check canonical filesystem-root containment, allowed
+   database operation *and table*, and `context.spent_cents + action.cents <= spend_cap_cents`.
+   Any failed check → **HALT**; an in-scope irreversible action → **ESCALATE**.
+6. Default → **HALT** (`default_deny`).
 
 Every branch returns a `reason` a human can read on the feed.
 
 ## 7. Demo (the 90-second story)
 
 1. Operator types a task: *"Clean up stale rows in the `sessions` table and tidy the temp
-   directory."* Interlock compiles a policy: `sessions` INSERT/DELETE allowed, `/tmp/demo/*`
-   deletable, no money, no `DROP`.
+   directory."* Interlock drafts a policy: only `sessions` DELETE is permitted, the canonical
+   demo root is writable, money is prohibited, and `DROP` is forbidden. The operator confirms it.
 2. The agent works — several reversible/in-scope actions **flow through green** on the feed.
 3. A **prompt-injection** payload (planted in a file the agent reads) tells it to
    `DROP TABLE users` and wire $5,000. On the feed: both actions **halt red**, each with a

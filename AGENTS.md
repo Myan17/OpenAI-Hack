@@ -33,9 +33,9 @@ reconciliation*, not malware detection.
 
 1. **Intent, not content.** We check "does this action match what the human asked for," against
    a machine-checkable policy — not "is this text malicious."
-2. **Gate only irreversible + out-of-intent.** Reversible actions always flow (approval fatigue
-   is the documented failure mode). We halt only actions that are *both* irreversible *and*
-   outside the compiled intent.
+2. **Keep known reads frictionless; fail closed elsewhere.** Recognized, policy-authorized
+   read-only actions flow without approval. Unknown, malformed, disallowed, or forbidden actions
+   HALT; irreversible in-policy actions ESCALATE; irreversible out-of-policy actions HALT.
 3. **The verifier is deterministic.** An LLM may *draft* a policy once, offline. It is **never**
    in the enforcement path. If you find yourself calling a model to decide allow/halt, stop —
    you are breaking the core idea.
@@ -60,14 +60,14 @@ system are (a) the one-shot intent compilation and (b) the demo agent itself.
 ```
 interlock/
   engine/            # PURE, DETERMINISTIC, NETWORK-FREE. The defensible core.
-    models.py        #   Reversibility, Decision, Policy, ProposedAction, Verdict
-    catalog.py       #   classify(tool, args) -> Reversibility
-    sqlkw.py         #   leading_keyword(sql) -> str  (shared by catalog + scope)
+    models.py        #   Reversibility, Decision, typed action payloads, Policy, Verdict
+    catalog.py       #   classify(typed action) -> Reversibility
+    sqlkw.py         #   single-statement SQL validation helpers
     patterns.py      #   matches_forbidden(action, patterns) -> str | None
-    scope.py         #   path_in_scope / db_op_allowed / within_spend
+    scope.py         #   canonical path / database table+op / cumulative spend checks
     enforcer.py      #   enforce(action, policy) -> Verdict   ← the whole decision
-  tools/sandbox.py   # the DANGEROUS surface: run_bash/run_db/transfer/fs_write (real local effects)
-  interceptor.py     # guarded_call(action, policy, sink): enforce → dispatch-or-block
+  tools/sandbox.py   # dangerous typed surface: db/transfer/fs effects, contained locally
+  interceptor.py     # async guarded_call(action, policy, context, sink): enforce → dispatch-or-block
   agent.py           # OpenAI Agents SDK wiring (GPT-5.6), tools wrapped by guarded_call
   intent.py          # compile_policy(task) -> Policy  (GPT-5.6 structured output, failsafe)
   api/
@@ -91,28 +91,32 @@ class Decision(str, Enum):      ALLOW="allow"; HALT="halt"; ESCALATE="escalate"
 class Policy(BaseModel):
     task: str
     allowed_tools: set[str]
-    allowed_paths: list[str]          # fnmatch globs
-    allowed_db_ops: set[str]          # e.g. {"SELECT","INSERT"}; DROP/DELETE absent by default
+    allowed_roots: list[str]          # canonical sandbox roots, never text globs alone
+    allowed_db_ops: set[str]          # e.g. {"SELECT","DELETE"}
+    allowed_db_tables: set[str]       # e.g. {"sessions"}; user data is not implied
     spend_cap_cents: int              # 0 = no money moves
     forbidden_patterns: list[str]     # regexes ALWAYS halted
 
-class ProposedAction(BaseModel): tool: str; args: dict
+class ProposedAction(BaseModel): tool: str; args: TypedActionArgs
+class EnforcementContext(BaseModel): spent_cents: int = 0
 class Verdict(BaseModel): decision: Decision; reversibility: Reversibility; reason: str; matched_rule: str; action: ProposedAction
 
-def classify(tool: str, args: dict) -> Reversibility: ...
-def enforce(action: ProposedAction, policy: Policy) -> Verdict: ...
-def guarded_call(action: ProposedAction, policy: Policy, sink: "EventSink") -> dict: ...
+def classify(action: ProposedAction) -> Reversibility: ...
+def enforce(action: ProposedAction, policy: Policy, context: EnforcementContext) -> Verdict: ...
+async def guarded_call(action: ProposedAction, policy: Policy, context: EnforcementContext, sink: "EventSink") -> dict: ...
 def compile_policy(task: str) -> Policy: ...
 ```
 
 ## 7. The enforcement algorithm (implement `enforce` exactly in this order)
 
-1. tool not in `policy.allowed_tools` → **HALT** (`matched_rule="allowed_tools"`)
-2. any `forbidden_patterns` regex matches → **HALT** (`matched_rule="forbidden_pattern:<pat>"`) — before reversibility
-3. `rev = classify(tool, args)`
-4. `rev == REVERSIBLE` → **ALLOW** (`matched_rule="reversible"`)
-5. irreversible/unknown → scope checks: out-of-scope path → HALT `allowed_paths`; db op not allowed → HALT `allowed_db_ops`; over spend cap → HALT `spend_cap`; else irreversible-but-in-scope → **ESCALATE** (`matched_rule="irreversible_in_scope"`)
-6. anything unmatched → **HALT** (`matched_rule="default_deny"`) — **fail closed**
+1. malformed action, unknown tool, or tool not in `policy.allowed_tools` → **HALT**.
+2. any `forbidden_patterns` regex match → **HALT** before classification.
+3. `rev = classify(action)`; an unrecognized command/SQL shape is `UNKNOWN`.
+4. a recognized policy-authorized read → **ALLOW** (`matched_rule="reversible"`).
+5. irreversible/unknown → scope checks: canonical path outside `allowed_roots` → HALT;
+   database operation or table outside allowlists → HALT; cumulative spend above cap → HALT;
+   else irreversible-but-in-scope → **ESCALATE** (`matched_rule="irreversible_in_scope"`).
+6. anything unmatched → **HALT** (`matched_rule="default_deny"`) — **fail closed**.
 
 Every branch sets a human-readable `reason`. `UNKNOWN` reversibility is treated as irreversible.
 
@@ -157,7 +161,8 @@ bash scripts/seed_demo.sh                     # rebuild sandbox before a demo
 
 ## 11. When unsure
 
-Re-read the three claims in §3. If a change would put a model in the enforcement path, weaken
-fail-closed behavior, or gate reversible actions, it is wrong by construction — do not do it.
+Re-read the three claims in §3. If a change would put a model in the enforcement path, treat an
+unrecognized action as reversible, or weaken fail-closed behavior, it is wrong by construction —
+do not do it.
 For anything genuinely ambiguous, leave a `# NOTE(interlock): <question>` and keep the failing
 test rather than guessing.
