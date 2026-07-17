@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from interlock.api.eventlog import EventLog
 from interlock.engine.models import (
     DbAction,
@@ -80,3 +82,10 @@ def test_unsubscribed_sse_queue_does_not_receive_future_events(tmp_path: Path) -
     log.emit(verdict)
 
     assert queue.empty()
+
+
+def test_invalid_escalation_resolution_is_rejected(tmp_path: Path) -> None:
+    log = EventLog(tmp_path / "events.sqlite")
+
+    with pytest.raises(ValueError, match="resolution"):
+        log.claim_escalation(1, "maybe")
