@@ -1,5 +1,5 @@
-from interlock.engine.models import DbAction, DbArgs, Decision, Reversibility, Verdict
-from interlock.tracing import trace_verdict
+from interlock.engine.models import DbAction, DbArgs, Decision, Policy, Reversibility, Verdict
+from interlock.tracing import trace_policy, trace_verdict
 
 
 class FakeClient:
@@ -27,3 +27,12 @@ def test_verdict_tracing_records_metadata_when_enabled(monkeypatch) -> None:
 
     assert trace_verdict(verdict, client) is True
     assert client.events[0]["name"] == "interlock.verdict"
+
+
+def test_policy_draft_tracing_records_only_policy_metadata(monkeypatch) -> None:
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    client = FakeClient()
+
+    assert trace_policy("inspect sessions", Policy(task="inspect sessions"), client) is True
+    assert client.events[0]["name"] == "interlock.policy_draft"

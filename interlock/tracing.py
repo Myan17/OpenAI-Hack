@@ -3,7 +3,7 @@
 import os
 from typing import Protocol
 
-from interlock.engine.models import Verdict
+from interlock.engine.models import Policy, Verdict
 
 
 class EventClient(Protocol):
@@ -24,6 +24,24 @@ def trace_verdict(verdict: Verdict, client: EventClient | None = None) -> bool:
             input=verdict.action.model_dump(mode="json"),
             output={"decision": verdict.decision.value, "rule": verdict.matched_rule},
             metadata={"reversibility": verdict.reversibility.value},
+        )
+        return True
+    except Exception:
+        return False
+
+
+def trace_policy(task: str, policy: Policy, client: EventClient | None = None) -> bool:
+    """Record the one-shot policy draft when optional tracing is enabled."""
+
+    if not _enabled():
+        return False
+    try:
+        active_client = client or _langfuse_client()
+        active_client.create_event(
+            name="interlock.policy_draft",
+            input={"task": task},
+            output=policy.model_dump(mode="json"),
+            metadata={"allowed_tools": sorted(policy.allowed_tools)},
         )
         return True
     except Exception:

@@ -6,6 +6,7 @@ from typing import Protocol
 from pydantic import ValidationError
 
 from interlock.engine.models import Policy
+from interlock.tracing import trace_policy
 
 
 class PolicyCompilerClient(Protocol):
@@ -34,9 +35,11 @@ async def compile_policy_with_openai(task: str, runner: PolicyRunner | None = No
     try:
         raw_policy = await (runner or _run_openai_compiler)(task)
         draft = Policy.model_validate(raw_policy)
-        return draft.model_copy(update={"task": task})
+        policy = draft.model_copy(update={"task": task})
     except (Exception,):
-        return Policy(task=task)
+        policy = Policy(task=task)
+    trace_policy(task, policy)
+    return policy
 
 
 async def _run_openai_compiler(task: str) -> object:
