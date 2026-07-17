@@ -44,8 +44,9 @@ def test_confirmed_run_launches_injected_agent_runner(tmp_path: Path) -> None:
     response = client.post("/run", json={"prompt": "inspect the schema"})
 
     assert response.status_code == 200
-    assert response.json() == {"accepted": True, "message": "Agent run started."}
+    assert response.json() == {"accepted": True, "run_id": 1, "message": "Agent run started."}
     assert calls == [("inspect sessions", "inspect the schema", tmp_path / "sandbox")]
+    assert client.get("/runs").json() == [{"id": 1, "status": "completed", "detail": "completed"}]
 
 
 def test_policy_draft_uses_injected_compiler(tmp_path: Path) -> None:

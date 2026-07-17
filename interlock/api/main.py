@@ -83,6 +83,10 @@ def create_app(
     def events(since: int = 0) -> list[dict[str, object]]:
         return state.event_log.since(since)
 
+    @app.get("/runs")
+    def runs() -> list[dict[str, object]]:
+        return state.event_log.runs()
+
     @app.get("/stream")
     async def stream() -> StreamingResponse:
         queue = state.event_log.subscribe()
@@ -98,14 +102,17 @@ def create_app(
     async def run_agent(request: RunRequest, background_tasks: BackgroundTasks) -> dict[str, object]:
         if state.policy is None or not state.confirmed:
             raise HTTPException(status_code=409, detail="A confirmed policy is required before a run.")
+        run_id = state.event_log.start_run(request.prompt)
         background_tasks.add_task(
+            _execute_agent_run,
+            run_id,
             state.agent_runner,
             state.policy,
             request.prompt,
             state.event_log,
             state.sandbox_root,
         )
-        return {"accepted": True, "message": "Agent run started."}
+        return {"accepted": True, "run_id": run_id, "message": "Agent run started."}
 
     @app.post("/escalation/{event_id}/{resolution}")
     def resolve_escalation(event_id: int, resolution: str) -> dict[str, object]:
@@ -134,6 +141,19 @@ async def _run_local_agent(policy: Policy, prompt: str, event_log: EventLog, san
     context = make_local_context(policy, sandbox_root, event_log.db_path)
     agent = build_agent(context)
     return await run_agent(agent, prompt, context)
+
+
+async def _execute_agent_run(
+    run_id: int, runner: AgentRunner, policy: Policy, prompt: str, event_log: EventLog, sandbox_root: Path
+) -> None:
+    """Run the agent and record a durable terminal state without exposing exception details."""
+
+    try:
+        result = await runner(policy, prompt, event_log, sandbox_root)
+    except Exception:
+        event_log.finish_run(run_id, "failed", "Agent run failed; inspect server logs for details.")
+    else:
+        event_log.finish_run(run_id, "completed", result)
 
 
 # The default development server keeps all demo state in a local temporary directory.

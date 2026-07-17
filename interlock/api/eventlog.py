@@ -97,6 +97,33 @@ class EventLog:
             return None
         return _ACTION_ADAPTER.validate_json(row[0]), Policy.model_validate_json(row[1])
 
+    def start_run(self, prompt: str) -> int:
+        """Persist a run start before the background agent is invoked."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            cursor = connection.execute(
+                "INSERT INTO runs (status, detail) VALUES ('running', ?)", (prompt,)
+            )
+            return int(cursor.lastrowid)
+
+    def finish_run(self, run_id: int, status: str, detail: str) -> None:
+        """Persist a terminal result for a previously started agent run."""
+
+        if status not in {"completed", "failed"}:
+            raise ValueError("run status must be completed or failed")
+        with sqlite3.connect(self._db_path) as connection:
+            connection.execute(
+                "UPDATE runs SET status = ?, detail = ? WHERE id = ?", (status, detail, run_id)
+            )
+
+    def runs(self) -> list[dict[str, object]]:
+        """Return durable agent-run states for the dashboard or polling clients."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute("SELECT id, status, detail FROM runs ORDER BY id DESC").fetchall()
+        return [dict(row) for row in rows]
+
     def since(self, event_id: int) -> list[dict[str, object]]:
         """Return audit rows strictly newer than an event id."""
 
@@ -123,6 +150,15 @@ class EventLog:
                     reason TEXT NOT NULL,
                     matched_rule TEXT NOT NULL,
                     args_json TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+                    detail TEXT NOT NULL
                 )
                 """
             )
