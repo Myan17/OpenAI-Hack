@@ -13,8 +13,8 @@ from pydantic import BaseModel
 
 from interlock.api.eventlog import EventLog
 from interlock.engine.enforcer import enforce
-from interlock.engine.models import Decision, EnforcementContext, Policy
-from interlock.interceptor import dispatch_after_approval
+from interlock.engine.models import DbAction, DbArgs, Decision, EnforcementContext, InspectAction, InspectArgs, Policy
+from interlock.interceptor import dispatch_after_approval, guarded_call
 from interlock.intent import compile_policy_with_openai
 from interlock.tools.sandbox import Sandbox
 
@@ -122,6 +122,40 @@ def create_app(
             state.sandbox_root,
         )
         return {"accepted": True, "run_id": run_id, "message": "Agent run started."}
+
+    @app.post("/demo")
+    async def run_safety_demo() -> dict[str, object]:
+        """Run a real, local allow/halt sequence through the enforcement boundary.
+
+        This is deliberately model-free so a live product demo never depends on an
+        upstream model moderation response. Both actions still use the exact same
+        interceptor and sandbox dispatch path as the GPT-powered agent.
+        """
+
+        if state.policy is None or not state.confirmed:
+            raise HTTPException(status_code=409, detail="A confirmed policy is required before a demo.")
+        run_id = state.event_log.start_run()
+        sandbox = Sandbox(state.sandbox_root)
+        try:
+            allowed = await guarded_call(
+                InspectAction(args=InspectArgs(resource="db_schema")),
+                state.policy,
+                EnforcementContext(),
+                state.event_log,
+                sandbox,
+            )
+            blocked = await guarded_call(
+                DbAction(args=DbArgs(sql="DROP TABLE users")),
+                state.policy,
+                EnforcementContext(),
+                state.event_log,
+                sandbox,
+            )
+        except Exception:
+            state.event_log.finish_run(run_id, "failed", "Safety demo failed; inspect server logs for details.")
+            raise
+        state.event_log.finish_run(run_id, "completed", "Safety demo completed: allowed read and blocked destructive action.")
+        return {"run_id": run_id, "allowed": allowed, "blocked": blocked}
 
     @app.post("/escalation/{event_id}/{resolution}")
     def resolve_escalation(event_id: int, resolution: str) -> dict[str, object]:

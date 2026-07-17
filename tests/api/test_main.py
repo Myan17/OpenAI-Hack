@@ -100,3 +100,26 @@ def test_health_endpoint_reports_api_ready(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_confirmed_safety_demo_emits_allowed_and_halted_verdicts(tmp_path: Path) -> None:
+    async def compiler(task: str) -> Policy:
+        return Policy(
+            task=task,
+            allowed_tools={"inspect"},
+            forbidden_patterns=["DROP TABLE"],
+        )
+
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=compiler))
+    drafted = client.post("/policy", json={"task": "inspect sessions"})
+    client.put("/policy", json={**drafted.json(), "confirmed": True})
+
+    response = client.post("/demo")
+
+    assert response.status_code == 200
+    assert response.json()["allowed"]["rows"] == [
+        {"name": "ledger"}, {"name": "sessions"}, {"name": "users"}
+    ]
+    assert response.json()["blocked"]["blocked"] is True
+    assert [event["decision"] for event in client.get("/events").json()] == ["allow", "halt"]
+    assert client.get("/runs").json() == [{"id": 1, "status": "completed", "detail": "Safety demo completed: allowed read and blocked destructive action."}]

@@ -1,7 +1,8 @@
 import pytest
+import json
 
 from interlock.engine.models import Policy
-from interlock.intent import compile_policy, compile_policy_with_openai
+from interlock.intent import PolicyDraft, compile_policy, compile_policy_with_openai
 
 
 class GoodClient:
@@ -30,6 +31,11 @@ def test_compiler_validates_structured_policy() -> None:
 def test_compiler_falls_back_to_deny_all() -> None:
     policy = compile_policy("inspect sessions", BadClient())
     assert policy == Policy(task="inspect sessions")
+
+
+def test_model_policy_schema_avoids_unique_items() -> None:
+    schema = PolicyDraft.model_json_schema()
+    assert "uniqueItems" not in json.dumps(schema["properties"])
 
 
 @pytest.mark.asyncio

@@ -33,9 +33,16 @@ export default function Page() {
   const [injectAttack, setInjectAttack] = useState(false);
 
   useEffect(() => {
+    let active = true;
+    const appendEvent = (event: VerdictEvent) => {
+      if (active) setEvents((current) => current.some((item) => item.id === event.id) ? current : [...current, event]);
+    };
+    requestJson<VerdictEvent[]>("/events").then((history) => {
+      if (active) setEvents(history);
+    }).catch(() => undefined);
     const source = new EventSource(`${API}/stream`);
-    source.onmessage = (event) => setEvents((current) => [...current, JSON.parse(event.data) as VerdictEvent]);
-    return () => source.close();
+    source.onmessage = (event) => appendEvent(JSON.parse(event.data) as VerdictEvent);
+    return () => { active = false; source.close(); };
   }, []);
 
   useEffect(() => {
@@ -89,6 +96,16 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
+  async function runSafetyDemo() {
+    setBusy(true);
+    try {
+      const response = await requestJson<{ run_id: number }>("/demo", { method: "POST" });
+      setStatus(`Safety demo #${response.run_id} completed. The feed shows the allowed read and blocked destructive action.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not run the safety demo.");
+    } finally { setBusy(false); }
+  }
+
   async function resolveEscalation(eventId: number, resolution: "approved" | "rejected") {
     setBusy(true);
     try {
@@ -107,9 +124,10 @@ export default function Page() {
       <div className="actions">
         <button onClick={draftPolicy} disabled={busy}>Draft policy</button>
         <button onClick={confirmPolicy} disabled={!draft || busy}>Confirm policy</button>
-        <button onClick={runAgent} disabled={!draft || busy}>Run guarded agent</button>
+        <button onClick={runSafetyDemo} disabled={!draft || busy}>Run safety demo</button>
+        <button onClick={runAgent} disabled={!draft || busy}>Run GPT agent</button>
       </div>
-      <label className="attack-toggle"><input type="checkbox" checked={injectAttack} onChange={(event) => setInjectAttack(event.target.checked)} /> Inject attack prompt</label>
+      <label className="attack-toggle"><input type="checkbox" checked={injectAttack} onChange={(event) => setInjectAttack(event.target.checked)} /> Add an unsafe instruction to the GPT prompt</label>
       <p className="status" aria-live="polite">{status}</p>
       {draft && <><label htmlFor="policy-json">Editable policy draft</label><textarea id="policy-json" className="policy-json" value={policyJson} onChange={(event) => setPolicyJson(event.target.value)} /></>}
     </section>
