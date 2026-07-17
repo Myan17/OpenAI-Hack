@@ -1,7 +1,5 @@
 """Conservative reversibility classifiers for Interlock's typed tool actions."""
 
-import re
-
 from interlock.engine.models import (
     DbAction,
     FsWriteAction,
@@ -10,6 +8,7 @@ from interlock.engine.models import (
     Reversibility,
     TransferAction,
 )
+from interlock.engine.sqlkw import leading_keyword
 
 _READ_ONLY_SQL = frozenset({"SELECT", "EXPLAIN"})
 _MUTATING_SQL = frozenset(
@@ -29,9 +28,6 @@ _MUTATING_SQL = frozenset(
         "VACUUM",
     }
 )
-_SQL_KEYWORD = re.compile(r"^[A-Za-z]+")
-
-
 def classify(action: ProposedAction) -> Reversibility:
     """Classify a typed action without assuming unknown input is safe."""
 
@@ -47,20 +43,9 @@ def classify(action: ProposedAction) -> Reversibility:
 def _classify_sql(sql: str) -> Reversibility:
     """Classify one simple SQL statement; ambiguous syntax remains unknown."""
 
-    statement = sql.strip()
-    if not statement or "--" in statement or "/*" in statement:
+    keyword = leading_keyword(sql)
+    if keyword is None:
         return Reversibility.UNKNOWN
-
-    if ";" in statement:
-        if not statement.endswith(";") or statement[:-1].count(";"):
-            return Reversibility.UNKNOWN
-        statement = statement[:-1].rstrip()
-
-    match = _SQL_KEYWORD.match(statement)
-    if match is None:
-        return Reversibility.UNKNOWN
-
-    keyword = match.group(0).upper()
     if keyword in _READ_ONLY_SQL:
         return Reversibility.REVERSIBLE
     if keyword in _MUTATING_SQL:
