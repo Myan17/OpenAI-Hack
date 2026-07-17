@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from interlock.api import eventlog
 from interlock.api.eventlog import EventLog
 from interlock.engine.models import (
     DbAction,
@@ -89,3 +90,20 @@ def test_invalid_escalation_resolution_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="resolution"):
         log.claim_escalation(1, "maybe")
+
+
+def test_sync_event_persistence_never_calls_optional_tracer(monkeypatch, tmp_path: Path) -> None:
+    calls: list[Verdict] = []
+    monkeypatch.setattr(eventlog, "trace_verdict", calls.append)
+    log = EventLog(tmp_path / "events.sqlite")
+    verdict = Verdict(
+        decision=Decision.ALLOW,
+        reversibility=Reversibility.REVERSIBLE,
+        reason="safe read",
+        matched_rule="reversible",
+        action=DbAction(args=DbArgs(sql="SELECT * FROM sessions")),
+    )
+
+    log.emit(verdict)
+
+    assert calls == []
