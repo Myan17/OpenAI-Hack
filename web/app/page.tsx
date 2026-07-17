@@ -80,6 +80,16 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
+  async function resolveEscalation(eventId: number, resolution: "approved" | "rejected") {
+    setBusy(true);
+    try {
+      await requestJson(`/escalation/${eventId}/${resolution}`, { method: "POST" });
+      setStatus(`Escalation ${resolution}. The decision is persisted in the audit log.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not resolve the escalation.");
+    } finally { setBusy(false); }
+  }
+
   return <main>
     <header><p className="eyebrow">OpenAI Build Week · Developer Tools</p><h1>Interlock</h1><p>Deterministic circuit breaker for autonomous agent actions.</p></header>
     <section className="panel">
@@ -97,6 +107,7 @@ export default function Page() {
     <section className="panel"><h2>Live verdicts</h2>
       {events.length === 0 ? <p>No tool calls yet.</p> : events.map((event) => <article key={event.id} className={event.decision}>
         <b>{event.decision.toUpperCase()}</b> · {event.tool} — {event.reason} <small>{event.matched_rule}</small>
+        {event.decision === "escalate" && <span className="approval-actions"><button onClick={() => resolveEscalation(event.id, "approved")} disabled={busy}>Approve</button><button className="reject" onClick={() => resolveEscalation(event.id, "rejected")} disabled={busy}>Reject</button></span>}
       </article>)}
     </section>
   </main>;
