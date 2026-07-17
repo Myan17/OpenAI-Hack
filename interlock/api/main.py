@@ -92,9 +92,12 @@ def create_app(
         queue = state.event_log.subscribe()
 
         async def events_stream():
-            while True:
-                event = await queue.get()
-                yield f"data: {json.dumps(event)}\n\n"
+            try:
+                while True:
+                    event = await queue.get()
+                    yield f"data: {json.dumps(event)}\n\n"
+            finally:
+                state.event_log.unsubscribe(queue)
 
         return StreamingResponse(events_stream(), media_type="text/event-stream")
 

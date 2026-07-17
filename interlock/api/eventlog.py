@@ -60,6 +60,14 @@ class EventLog:
         self._subscribers.append(queue)
         return queue
 
+    def unsubscribe(self, queue: asyncio.Queue[dict[str, object]]) -> None:
+        """Remove a disconnected SSE consumer without affecting other subscribers."""
+
+        try:
+            self._subscribers.remove(queue)
+        except ValueError:
+            pass
+
     def record_escalation(self, event_id: int, action: ProposedAction, policy: Policy) -> None:
         """Persist an unexecuted escalation so approval survives a process restart."""
 

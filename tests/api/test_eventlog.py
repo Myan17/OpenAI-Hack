@@ -63,3 +63,20 @@ def test_run_lifecycle_is_durable(tmp_path: Path) -> None:
     log.finish_run(run_id, "completed", "inspection complete")
 
     assert log.runs() == [{"id": run_id, "status": "completed", "detail": "inspection complete"}]
+
+
+def test_unsubscribed_sse_queue_does_not_receive_future_events(tmp_path: Path) -> None:
+    log = EventLog(tmp_path / "events.sqlite")
+    queue = log.subscribe()
+    log.unsubscribe(queue)
+    verdict = Verdict(
+        decision=Decision.ALLOW,
+        reversibility=Reversibility.REVERSIBLE,
+        reason="safe read",
+        matched_rule="reversible",
+        action=DbAction(args=DbArgs(sql="SELECT * FROM sessions")),
+    )
+
+    log.emit(verdict)
+
+    assert queue.empty()
