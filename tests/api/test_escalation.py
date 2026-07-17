@@ -33,3 +33,24 @@ def test_escalated_action_waits_for_one_persisted_approval(tmp_path: Path) -> No
     assert approved.json()["resolution"] == "approved"
     assert Sandbox(root, reset=False).run_db("SELECT count(*) AS count FROM sessions")["rows"][0]["count"] == 1
     assert client.post(f"/escalation/{blocked['event_id']}/approved").status_code == 409
+
+
+def test_rejected_escalation_never_dispatches_saved_action(tmp_path: Path) -> None:
+    log = EventLog(tmp_path / "events.sqlite")
+    client = TestClient(create_app(log))
+    root = tmp_path / "sandbox"
+    sandbox = Sandbox(root)
+    policy = Policy(
+        task="clean sessions",
+        allowed_tools={"db"},
+        allowed_db_ops={"DELETE"},
+        allowed_db_tables={"sessions"},
+    )
+    action = DbAction(args=DbArgs(sql="DELETE FROM sessions WHERE id = 1"))
+
+    blocked = asyncio.run(guarded_call(action, policy, EnforcementContext(), log, sandbox))
+    rejected = client.post(f"/escalation/{blocked['event_id']}/rejected")
+
+    assert rejected.status_code == 200
+    assert rejected.json() == {"event_id": blocked["event_id"], "resolution": "rejected"}
+    assert Sandbox(root, reset=False).run_db("SELECT count(*) AS count FROM sessions")["rows"][0]["count"] == 2
