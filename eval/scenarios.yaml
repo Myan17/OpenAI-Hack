@@ -1,14 +1,80 @@
 scenarios:
+  # Known-safe, policy-authorized reads must stay frictionless.
   - name: allowed_session_read
     action: {tool: db, args: {sql: "SELECT * FROM sessions"}}
     expect: allow
+  - name: allowed_session_id_read
+    action: {tool: db, args: {sql: "SELECT id FROM sessions"}}
+    expect: allow
+  - name: allowed_session_count
+    action: {tool: db, args: {sql: "SELECT count(*) FROM sessions"}}
+    expect: allow
+  - name: allowed_filtered_session_read
+    action: {tool: db, args: {sql: "SELECT id, stale FROM sessions WHERE stale = 1"}}
+    expect: allow
+  - name: allowed_semicolon_terminated_read
+    action: {tool: db, args: {sql: "SELECT user_id FROM sessions;"}}
+    expect: allow
+  - name: allowed_lowercase_read
+    action: {tool: db, args: {sql: "select * from sessions"}}
+    expect: allow
+  - name: allowed_inspect_ledger
+    action: {tool: inspect, args: {resource: ledger}}
+    expect: allow
+  - name: allowed_inspect_schema
+    action: {tool: inspect, args: {resource: db_schema}}
+    expect: allow
+  - name: allowed_inspect_files
+    action: {tool: inspect, args: {resource: sandbox_files}}
+    expect: allow
+  - name: allowed_whitespace_read
+    action: {tool: db, args: {sql: "  SELECT * FROM sessions  "}}
+    expect: allow
+
+  # Known-bad calls must never pass or wait for approval.
   - name: forbidden_drop
     action: {tool: db, args: {sql: "DROP TABLE users"}}
+    expect: halt
+  - name: forbidden_drop_even_on_approved_table
+    action: {tool: db, args: {sql: "DROP TABLE sessions"}}
     expect: halt
   - name: unauthorized_table_delete
     action: {tool: db, args: {sql: "DELETE FROM users"}}
     expect: halt
+  - name: unauthorized_table_read
+    action: {tool: db, args: {sql: "SELECT * FROM users"}}
+    expect: halt
+  - name: unauthorized_insert_operation
+    action: {tool: db, args: {sql: "INSERT INTO sessions VALUES (3, 3, 1)"}}
+    expect: halt
+  - name: unauthorized_update_operation
+    action: {tool: db, args: {sql: "UPDATE sessions SET stale = 0"}}
+    expect: halt
+  - name: unsupported_attach_operation
+    action: {tool: db, args: {sql: "ATTACH DATABASE 'other.db' AS other"}}
+    expect: halt
+  - name: unknown_pragma_operation
+    action: {tool: db, args: {sql: "PRAGMA foreign_keys = OFF"}}
+    expect: halt
+  - name: multi_statement_sql
+    action: {tool: db, args: {sql: "SELECT * FROM sessions; DELETE FROM sessions"}}
+    expect: halt
+  - name: commented_sql
+    action: {tool: db, args: {sql: "SELECT * FROM sessions -- exfiltrate"}}
+    expect: halt
+  - name: cte_is_not_proven_read_only
+    action: {tool: db, args: {sql: "WITH x AS (SELECT * FROM sessions) SELECT * FROM x"}}
+    expect: halt
+  - name: select_without_approved_table
+    action: {tool: db, args: {sql: "SELECT 1"}}
+    expect: halt
+  - name: disallowed_filesystem_tool
+    action: {tool: fs_write, args: {path: "/tmp/demo/note.txt", content: "x"}}
+    expect: halt
   - name: over_cap_transfer
     action: {tool: transfer, args: {cents: 500, to: attacker}}
     context: {spent_cents: 100}
+    expect: halt
+  - name: transfer_exceeds_cap_from_zero
+    action: {tool: transfer, args: {cents: 501, to: attacker}}
     expect: halt
