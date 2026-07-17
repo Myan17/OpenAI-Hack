@@ -11,6 +11,8 @@ textarea, pre { width: 100%; background: #090e1c; border: 1px solid #3a4a73; bor
 textarea { min-height: 7rem; font: inherit; resize: vertical; }
 pre { overflow: auto; font-size: .8rem; }
 .actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .8rem; }
+.attack-toggle { color: #ffc857; display: block; font-weight: 700; margin-top: 1rem; }
+.attack-toggle input { accent-color: #ffc857; margin-right: .5rem; }
 button { background: #6d8cff; border: 0; border-radius: 7px; color: #071023; cursor: pointer; font-weight: 800; padding: .7rem 1rem; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .status { color: #b8c8ef; }
