@@ -49,6 +49,23 @@ def test_confirmed_run_launches_injected_agent_runner(tmp_path: Path) -> None:
     assert client.get("/runs").json() == [{"id": 1, "status": "completed", "detail": "completed"}]
 
 
+def test_failed_agent_run_is_recorded_without_exposing_exception(tmp_path: Path) -> None:
+    async def failing_runner(_policy: Policy, _prompt: str, _log: EventLog, _root: Path) -> str:
+        raise RuntimeError("secret upstream failure")
+
+    log = EventLog(tmp_path / "events.sqlite")
+    client = TestClient(create_app(log, agent_runner=failing_runner, policy_compiler=static_compiler))
+    drafted = client.post("/policy", json={"task": "inspect sessions"})
+    client.put("/policy", json={**drafted.json(), "confirmed": True})
+
+    response = client.post("/run", json={"prompt": "inspect the schema"})
+
+    assert response.status_code == 200
+    assert client.get("/runs").json() == [
+        {"id": 1, "status": "failed", "detail": "Agent run failed; inspect server logs for details."}
+    ]
+
+
 def test_policy_draft_uses_injected_compiler(tmp_path: Path) -> None:
     async def compiler(task: str) -> Policy:
         return Policy(task=task, allowed_tools={"inspect"})
