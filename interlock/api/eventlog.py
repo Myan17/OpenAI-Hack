@@ -9,6 +9,7 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from interlock.engine.models import Policy, ProposedAction, Verdict
+from interlock.tracing import trace_verdict
 
 _ACTION_ADAPTER = TypeAdapter(ProposedAction)
 
@@ -44,6 +45,7 @@ class EventLog:
         event = self.since(event_id - 1)[0]
         for subscriber in self._subscribers:
             subscriber.put_nowait(event)
+        trace_verdict(verdict)
         return event_id
 
     @property
