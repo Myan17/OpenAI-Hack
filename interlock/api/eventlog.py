@@ -42,6 +42,12 @@ class EventLog:
             subscriber.put_nowait(event)
         return event_id
 
+    @property
+    def db_path(self) -> Path:
+        """Return the SQLite location so app wiring can place its local sandbox beside it."""
+
+        return self._db_path
+
     def subscribe(self) -> asyncio.Queue[dict[str, object]]:
         """Return a queue that receives each newly appended event."""
         queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
