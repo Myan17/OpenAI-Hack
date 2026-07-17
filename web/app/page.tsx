@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type VerdictEvent = { id: number; tool: string; decision: string; reason: string; matched_rule: string };
+type VerdictEvent = { id: number; tool: string; decision: string; reason: string; matched_rule: string; args_json: string };
 type Run = { id: number; status: string; detail: string };
 type Policy = {
   task: string;
@@ -116,6 +116,7 @@ export default function Page() {
     <section className="panel"><h2>Live verdicts</h2>
       {events.length === 0 ? <p>No tool calls yet.</p> : events.map((event) => <article key={event.id} className={event.decision}>
         <b>{event.decision.toUpperCase()}</b> · {event.tool} — {event.reason} <small>{event.matched_rule}</small>
+        <code className="action-payload">{event.args_json}</code>
         {event.decision === "escalate" && <span className="approval-actions"><button onClick={() => resolveEscalation(event.id, "approved")} disabled={busy}>Approve</button><button className="reject" onClick={() => resolveEscalation(event.id, "rejected")} disabled={busy}>Reject</button></span>}
       </article>)}
     </section>
