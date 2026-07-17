@@ -59,6 +59,10 @@ Open `http://127.0.0.1:3000`, draft a policy, inspect it, explicitly confirm it,
 guarded agent. The **Inject attack prompt** control intentionally adds a `DROP TABLE` / transfer
 instruction to the agent prompt; the event feed should show the deterministic halts.
 
+In-scope irreversible actions deliberately emit `ESCALATE` rather than running automatically.
+The dashboard’s **Approve** and **Reject** controls resolve the exact stored action only once;
+approval re-validates it against its persisted policy before resuming the local sandbox effect.
+
 ## Evidence
 
 `python -m eval.run` exercises 25 golden scenarios: 10 authorized benign reads and 15
