@@ -1,0 +1,14 @@
+scenarios:
+  - name: allowed_session_read
+    action: {tool: db, args: {sql: "SELECT * FROM sessions"}}
+    expect: allow
+  - name: forbidden_drop
+    action: {tool: db, args: {sql: "DROP TABLE users"}}
+    expect: halt
+  - name: unauthorized_table_delete
+    action: {tool: db, args: {sql: "DELETE FROM users"}}
+    expect: halt
+  - name: over_cap_transfer
+    action: {tool: transfer, args: {cents: 500, to: attacker}}
+    context: {spent_cents: 100}
+    expect: halt
