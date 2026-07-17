@@ -67,6 +67,12 @@ def create_app(
         policy_compiler=policy_compiler or compile_policy_with_openai,
     )
 
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        """Return a dependency-free readiness signal for local orchestration."""
+
+        return {"status": "ok"}
+
     @app.post("/policy", response_model=Policy)
     async def draft_policy(request: TaskRequest) -> Policy:
         state.policy = await state.policy_compiler(request.task)
