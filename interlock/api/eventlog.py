@@ -45,7 +45,7 @@ class EventLog:
         event = self.since(event_id - 1)[0]
         for subscriber in self._subscribers:
             subscriber.put_nowait(event)
-        trace_verdict(verdict)
+        _schedule_verdict_trace(verdict)
         return event_id
 
     @property
@@ -180,3 +180,13 @@ class EventLog:
                 )
                 """
             )
+
+
+def _schedule_verdict_trace(verdict: Verdict) -> None:
+    """Schedule optional observability after persistence without blocking tool enforcement."""
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(asyncio.to_thread(trace_verdict, verdict))
