@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +14,7 @@ class EventLog:
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
+        self._subscribers: list[asyncio.Queue[dict[str, object]]] = []
         self._initialize()
 
     def emit(self, verdict: Verdict) -> int:
@@ -34,7 +36,17 @@ class EventLog:
                     json.dumps(verdict.action.model_dump(mode="json"), sort_keys=True),
                 ),
             )
-            return int(cursor.lastrowid)
+            event_id = int(cursor.lastrowid)
+        event = self.since(event_id - 1)[0]
+        for subscriber in self._subscribers:
+            subscriber.put_nowait(event)
+        return event_id
+
+    def subscribe(self) -> asyncio.Queue[dict[str, object]]:
+        """Return a queue that receives each newly appended event."""
+        queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        self._subscribers.append(queue)
+        return queue
 
     def since(self, event_id: int) -> list[dict[str, object]]:
         """Return audit rows strictly newer than an event id."""
