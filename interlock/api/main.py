@@ -115,3 +115,7 @@ async def _run_local_agent(policy: Policy, prompt: str, event_log: EventLog, san
     context = make_local_context(policy, sandbox_root, event_log.db_path)
     agent = build_agent(context)
     return await run_agent(agent, prompt, context)
+
+
+# The default development server keeps all demo state in a local temporary directory.
+app = create_app(EventLog(Path("/tmp/interlock/events.sqlite")))
