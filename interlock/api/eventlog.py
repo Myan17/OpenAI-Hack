@@ -97,12 +97,12 @@ class EventLog:
             return None
         return _ACTION_ADAPTER.validate_json(row[0]), Policy.model_validate_json(row[1])
 
-    def start_run(self, prompt: str) -> int:
+    def start_run(self) -> int:
         """Persist a run start before the background agent is invoked."""
 
         with sqlite3.connect(self._db_path) as connection:
             cursor = connection.execute(
-                "INSERT INTO runs (status, detail) VALUES ('running', ?)", (prompt,)
+                "INSERT INTO runs (status, detail) VALUES ('running', 'Agent run started.')"
             )
             return int(cursor.lastrowid)
 

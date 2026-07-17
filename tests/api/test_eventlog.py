@@ -59,7 +59,7 @@ def test_escalation_action_and_policy_are_persisted_and_claimed_once(tmp_path: P
 def test_run_lifecycle_is_durable(tmp_path: Path) -> None:
     log = EventLog(tmp_path / "events.sqlite")
 
-    run_id = log.start_run("inspect sessions")
+    run_id = log.start_run()
     log.finish_run(run_id, "completed", "inspection complete")
 
     assert log.runs() == [{"id": run_id, "status": "completed", "detail": "inspection complete"}]

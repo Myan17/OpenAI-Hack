@@ -102,7 +102,7 @@ def create_app(
     async def run_agent(request: RunRequest, background_tasks: BackgroundTasks) -> dict[str, object]:
         if state.policy is None or not state.confirmed:
             raise HTTPException(status_code=409, detail="A confirmed policy is required before a run.")
-        run_id = state.event_log.start_run(request.prompt)
+        run_id = state.event_log.start_run()
         background_tasks.add_task(
             _execute_agent_run,
             run_id,
