@@ -36,6 +36,9 @@ async def guarded_call(
     if verdict.decision.value == "halt":
         return {"blocked": True, "reason": verdict.reason, "event_id": event_id}
     if verdict.decision.value == "escalate":
+        record_escalation = getattr(sink, "record_escalation", None)
+        if callable(record_escalation):
+            record_escalation(event_id, action, policy)
         return {"blocked": True, "escalated": True, "reason": verdict.reason, "event_id": event_id}
     return _dispatch(action, sandbox)
 
@@ -52,3 +55,9 @@ def _dispatch(action: ProposedAction, sandbox: Sandbox) -> dict[str, object]:
     if isinstance(action, InspectAction):
         return sandbox.inspect(action.args.resource)
     raise TypeError("unsupported typed action")
+
+
+def dispatch_after_approval(action: ProposedAction, sandbox: Sandbox) -> dict[str, object]:
+    """Execute an action only after the persisted approval endpoint has re-validated it."""
+
+    return _dispatch(action, sandbox)

@@ -6,7 +6,11 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
-from interlock.engine.models import Verdict
+from pydantic import TypeAdapter
+
+from interlock.engine.models import Policy, ProposedAction, Verdict
+
+_ACTION_ADAPTER = TypeAdapter(ProposedAction)
 
 
 class EventLog:
@@ -54,6 +58,43 @@ class EventLog:
         self._subscribers.append(queue)
         return queue
 
+    def record_escalation(self, event_id: int, action: ProposedAction, policy: Policy) -> None:
+        """Persist an unexecuted escalation so approval survives a process restart."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO escalations (event_id, action_json, policy_json, status)
+                VALUES (?, ?, ?, 'pending')
+                """,
+                (
+                    event_id,
+                    action.model_dump_json(),
+                    policy.model_dump_json(),
+                ),
+            )
+
+    def claim_escalation(
+        self, event_id: int, resolution: str
+    ) -> tuple[ProposedAction, Policy] | None:
+        """Atomically claim one pending escalation for approval or rejection."""
+
+        if resolution not in {"approved", "rejected"}:
+            raise ValueError("resolution must be approved or rejected")
+        with sqlite3.connect(self._db_path) as connection:
+            cursor = connection.execute(
+                "UPDATE escalations SET status = ? WHERE event_id = ? AND status = 'pending'",
+                (resolution, event_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+            row = connection.execute(
+                "SELECT action_json, policy_json FROM escalations WHERE event_id = ?", (event_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return _ACTION_ADAPTER.validate_json(row[0]), Policy.model_validate_json(row[1])
+
     def since(self, event_id: int) -> list[dict[str, object]]:
         """Return audit rows strictly newer than an event id."""
 
@@ -80,6 +121,16 @@ class EventLog:
                     reason TEXT NOT NULL,
                     matched_rule TEXT NOT NULL,
                     args_json TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS escalations (
+                    event_id INTEGER PRIMARY KEY REFERENCES events(id),
+                    action_json TEXT NOT NULL,
+                    policy_json TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected'))
                 )
                 """
             )

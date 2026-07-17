@@ -12,8 +12,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from interlock.api.eventlog import EventLog
-from interlock.engine.models import Policy
+from interlock.engine.enforcer import enforce
+from interlock.engine.models import Decision, EnforcementContext, Policy
+from interlock.interceptor import dispatch_after_approval
 from interlock.intent import compile_policy_with_openai
+from interlock.tools.sandbox import Sandbox
 
 
 AgentRunner = Callable[[Policy, str, EventLog, Path], Awaitable[str]]
@@ -103,6 +106,22 @@ def create_app(
             state.sandbox_root,
         )
         return {"accepted": True, "message": "Agent run started."}
+
+    @app.post("/escalation/{event_id}/{resolution}")
+    def resolve_escalation(event_id: int, resolution: str) -> dict[str, object]:
+        if resolution not in {"approved", "rejected"}:
+            raise HTTPException(status_code=422, detail="Resolution must be approved or rejected.")
+        claimed = state.event_log.claim_escalation(event_id, resolution)
+        if claimed is None:
+            raise HTTPException(status_code=409, detail="This escalation is not pending.")
+        if resolution == "rejected":
+            return {"event_id": event_id, "resolution": "rejected"}
+        action, policy = claimed
+        verdict = enforce(action, policy, EnforcementContext())
+        if verdict.decision != Decision.ESCALATE:
+            raise HTTPException(status_code=409, detail="Stored escalation no longer requires approval.")
+        result = dispatch_after_approval(action, Sandbox(state.sandbox_root, reset=False))
+        return {"event_id": event_id, "resolution": "approved", "result": result}
 
     return app
 
