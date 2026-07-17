@@ -58,3 +58,18 @@ def test_policy_draft_uses_injected_compiler(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["allowed_tools"] == ["inspect"]
+
+
+def test_local_dashboard_origin_is_allowed_to_call_api(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=static_compiler))
+
+    response = client.options(
+        "/policy",
+        headers={
+            "Origin": "http://127.0.0.1:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"

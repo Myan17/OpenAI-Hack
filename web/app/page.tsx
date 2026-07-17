@@ -1,14 +1,94 @@
 "use client";
+
 import { useEffect, useState } from "react";
 
-type Event = { id: number; tool: string; decision: string; reason: string; matched_rule: string };
+type VerdictEvent = { id: number; tool: string; decision: string; reason: string; matched_rule: string };
+type Policy = {
+  task: string;
+  allowed_tools: string[];
+  allowed_roots: string[];
+  allowed_db_ops: string[];
+  allowed_db_tables: string[];
+  spend_cap_cents: number;
+  forbidden_patterns: string[];
+};
+
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API}${path}`, init);
+  if (!response.ok) throw new Error((await response.json()).detail ?? "Request failed.");
+  return response.json() as Promise<T>;
+}
+
 export default function Page() {
-  const [task, setTask] = useState("Clean stale sessions and inspect the sandbox.");
-  const [events, setEvents] = useState<Event[]>([]);
-  const [status, setStatus] = useState("Draft a policy before running the agent.");
-  useEffect(() => { const source = new EventSource(`${API}/stream`); source.onmessage = e => setEvents(v => [...v, JSON.parse(e.data)]); return () => source.close(); }, []);
-  async function confirm() { const draft = await fetch(`${API}/policy`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task }) }).then(r => r.json()); await fetch(`${API}/policy`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, confirmed: true }) }); setStatus("Policy confirmed. Agent runs are now guarded."); }
-  return <main><h1>Interlock</h1><p>Deterministic circuit breaker for agent tool calls.</p><textarea value={task} onChange={e => setTask(e.target.value)} /><button onClick={confirm}>Confirm policy</button><p>{status}</p><h2>Live verdicts</h2>{events.map(e => <article key={e.id}><b>{e.decision.toUpperCase()}</b> · {e.tool} — {e.reason} <small>{e.matched_rule}</small></article>)}</main>;
+  const [task, setTask] = useState("Inspect the database schema and stale sessions.");
+  const [draft, setDraft] = useState<Policy | null>(null);
+  const [events, setEvents] = useState<VerdictEvent[]>([]);
+  const [status, setStatus] = useState("Draft a least-privilege policy to begin.");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const source = new EventSource(`${API}/stream`);
+    source.onmessage = (event) => setEvents((current) => [...current, JSON.parse(event.data) as VerdictEvent]);
+    return () => source.close();
+  }, []);
+
+  async function draftPolicy() {
+    setBusy(true);
+    try {
+      const policy = await requestJson<Policy>("/policy", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task }),
+      });
+      setDraft(policy);
+      setStatus("Review the generated policy, then explicitly confirm it.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not draft a policy.");
+    } finally { setBusy(false); }
+  }
+
+  async function confirmPolicy() {
+    if (!draft) return;
+    setBusy(true);
+    try {
+      await requestJson<Policy>("/policy", {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, confirmed: true }),
+      });
+      setStatus("Policy confirmed. Every tool call is now enforced deterministically.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not confirm the policy.");
+    } finally { setBusy(false); }
+  }
+
+  async function runAgent() {
+    setBusy(true);
+    try {
+      await requestJson<{ accepted: boolean }>("/run", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: task }),
+      });
+      setStatus("Agent started. Watch the live verdict feed below.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not start the agent.");
+    } finally { setBusy(false); }
+  }
+
+  return <main>
+    <header><p className="eyebrow">OpenAI Build Week · Developer Tools</p><h1>Interlock</h1><p>Deterministic circuit breaker for autonomous agent actions.</p></header>
+    <section className="panel">
+      <label htmlFor="task">Task</label>
+      <textarea id="task" value={task} onChange={(event) => setTask(event.target.value)} />
+      <div className="actions">
+        <button onClick={draftPolicy} disabled={busy}>Draft policy</button>
+        <button onClick={confirmPolicy} disabled={!draft || busy}>Confirm policy</button>
+        <button onClick={runAgent} disabled={!draft || busy}>Run guarded agent</button>
+      </div>
+      <p className="status" aria-live="polite">{status}</p>
+      {draft && <pre aria-label="Policy draft">{JSON.stringify(draft, null, 2)}</pre>}
+    </section>
+    <section className="panel"><h2>Live verdicts</h2>
+      {events.length === 0 ? <p>No tool calls yet.</p> : events.map((event) => <article key={event.id} className={event.decision}>
+        <b>{event.decision.toUpperCase()}</b> · {event.tool} — {event.reason} <small>{event.matched_rule}</small>
+      </article>)}
+    </section>
+  </main>;
 }

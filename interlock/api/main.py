@@ -7,6 +7,7 @@ from typing import Awaitable, Callable
 import json
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -49,6 +50,13 @@ def create_app(
     """Create an app with injected persistence, making HTTP tests isolated."""
 
     app = FastAPI(title="Interlock")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT"],
+        allow_headers=["Content-Type"],
+    )
     state = AppState(
         event_log=event_log,
         sandbox_root=event_log.db_path.parent / "sandbox",
