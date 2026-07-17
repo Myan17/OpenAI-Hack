@@ -12,9 +12,11 @@ from pydantic import BaseModel
 
 from interlock.api.eventlog import EventLog
 from interlock.engine.models import Policy
+from interlock.intent import compile_policy_with_openai
 
 
 AgentRunner = Callable[[Policy, str, EventLog, Path], Awaitable[str]]
+PolicyCompiler = Callable[[str], Awaitable[Policy]]
 
 
 class TaskRequest(BaseModel):
@@ -34,11 +36,16 @@ class AppState:
     event_log: EventLog
     sandbox_root: Path
     agent_runner: AgentRunner
+    policy_compiler: PolicyCompiler
     policy: Policy | None = None
     confirmed: bool = False
 
 
-def create_app(event_log: EventLog, agent_runner: AgentRunner | None = None) -> FastAPI:
+def create_app(
+    event_log: EventLog,
+    agent_runner: AgentRunner | None = None,
+    policy_compiler: PolicyCompiler | None = None,
+) -> FastAPI:
     """Create an app with injected persistence, making HTTP tests isolated."""
 
     app = FastAPI(title="Interlock")
@@ -46,11 +53,12 @@ def create_app(event_log: EventLog, agent_runner: AgentRunner | None = None) -> 
         event_log=event_log,
         sandbox_root=event_log.db_path.parent / "sandbox",
         agent_runner=agent_runner or _run_local_agent,
+        policy_compiler=policy_compiler or compile_policy_with_openai,
     )
 
     @app.post("/policy", response_model=Policy)
-    def draft_policy(request: TaskRequest) -> Policy:
-        state.policy = Policy(task=request.task)
+    async def draft_policy(request: TaskRequest) -> Policy:
+        state.policy = await state.policy_compiler(request.task)
         state.confirmed = False
         return state.policy
 

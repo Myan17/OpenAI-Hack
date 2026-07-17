@@ -1,5 +1,7 @@
+import pytest
+
 from interlock.engine.models import Policy
-from interlock.intent import compile_policy
+from interlock.intent import compile_policy, compile_policy_with_openai
 
 
 class GoodClient:
@@ -28,3 +30,21 @@ def test_compiler_validates_structured_policy() -> None:
 def test_compiler_falls_back_to_deny_all() -> None:
     policy = compile_policy("inspect sessions", BadClient())
     assert policy == Policy(task="inspect sessions")
+
+
+@pytest.mark.asyncio
+async def test_openai_compiler_validates_runner_output_and_preserves_requested_task() -> None:
+    async def runner(_task: str) -> object:
+        return {"task": "model changed this", "allowed_tools": ["inspect"]}
+
+    policy = await compile_policy_with_openai("inspect the ledger", runner=runner)
+
+    assert policy == Policy(task="inspect the ledger", allowed_tools={"inspect"})
+
+
+@pytest.mark.asyncio
+async def test_openai_compiler_fails_closed_when_runner_errors() -> None:
+    async def failing_runner(_task: str) -> object:
+        raise RuntimeError("network unavailable")
+
+    assert await compile_policy_with_openai("inspect sessions", runner=failing_runner) == Policy(task="inspect sessions")

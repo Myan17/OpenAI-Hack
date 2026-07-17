@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from fastapi.testclient import TestClient
 
@@ -7,8 +8,15 @@ from interlock.api.main import create_app
 from interlock.engine.models import Policy
 
 
+PolicyCompiler = Callable[[str], Awaitable[Policy]]
+
+
+async def static_compiler(task: str) -> Policy:
+    return Policy(task=task)
+
+
 def test_policy_requires_confirmation_before_run(tmp_path: Path) -> None:
-    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=static_compiler))
 
     drafted = client.post("/policy", json={"task": "inspect sessions"})
     rejected_run = client.post("/run", json={"prompt": "inspect sessions"})
@@ -29,7 +37,7 @@ def test_confirmed_run_launches_injected_agent_runner(tmp_path: Path) -> None:
         return "completed"
 
     log = EventLog(tmp_path / "events.sqlite")
-    client = TestClient(create_app(log, agent_runner=fake_runner))
+    client = TestClient(create_app(log, agent_runner=fake_runner, policy_compiler=static_compiler))
     drafted = client.post("/policy", json={"task": "inspect sessions"})
     client.put("/policy", json={**drafted.json(), "confirmed": True})
 
@@ -38,3 +46,15 @@ def test_confirmed_run_launches_injected_agent_runner(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json() == {"accepted": True, "message": "Agent run started."}
     assert calls == [("inspect sessions", "inspect the schema", tmp_path / "sandbox")]
+
+
+def test_policy_draft_uses_injected_compiler(tmp_path: Path) -> None:
+    async def compiler(task: str) -> Policy:
+        return Policy(task=task, allowed_tools={"inspect"})
+
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=compiler))
+
+    response = client.post("/policy", json={"task": "inspect the ledger"})
+
+    assert response.status_code == 200
+    assert response.json()["allowed_tools"] == ["inspect"]
