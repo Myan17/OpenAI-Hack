@@ -7,14 +7,15 @@ from pathlib import Path
 class Sandbox:
     """Per-run local sandbox; it never reaches real files, networks, or money."""
 
-    def __init__(self, root: Path, opening_balance_cents: int = 100_000) -> None:
+    def __init__(
+        self, root: Path, opening_balance_cents: int = 100_000, reset: bool = True
+    ) -> None:
         if opening_balance_cents < 0:
             raise ValueError("opening balance cannot be negative")
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self._db_path = self.root / "sandbox.sqlite"
-        self._balance_cents = opening_balance_cents
-        self._initialize_database()
+        self._initialize_database(opening_balance_cents, reset)
 
     def run_db(self, sql: str) -> dict[str, object]:
         """Run one SQL statement against this sandbox's SQLite file."""
@@ -32,10 +33,13 @@ class Sandbox:
             raise ValueError("transfer cents cannot be negative")
         if not to:
             raise ValueError("transfer recipient is required")
-        if cents > self._balance_cents:
-            raise ValueError("insufficient sandbox balance")
-        self._balance_cents -= cents
-        return {"to": to, "cents": cents, "balance_cents": self._balance_cents}
+        with sqlite3.connect(self._db_path) as connection:
+            balance = int(connection.execute("SELECT cents FROM ledger WHERE id = 1").fetchone()[0])
+            if cents > balance:
+                raise ValueError("insufficient sandbox balance")
+            remaining = balance - cents
+            connection.execute("UPDATE ledger SET cents = ? WHERE id = 1", (remaining,))
+        return {"to": to, "cents": cents, "balance_cents": remaining}
 
     def fs_write(self, relative_path: str, content: str) -> dict[str, str]:
         """Write beneath the sandbox root and reject traversal or symlink escapes."""
@@ -53,14 +57,16 @@ class Sandbox:
         """Return an explicitly limited read-only snapshot for an agent tool."""
 
         if resource == "ledger":
-            return {"balance_cents": self._balance_cents}
+            with sqlite3.connect(self._db_path) as connection:
+                balance = int(connection.execute("SELECT cents FROM ledger WHERE id = 1").fetchone()[0])
+            return {"balance_cents": balance}
         if resource == "sandbox_files":
             return {"paths": sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*") if path.is_file())}
         if resource == "db_schema":
             return self.run_db("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
         raise ValueError("unknown inspection resource")
 
-    def _initialize_database(self) -> None:
+    def _initialize_database(self, opening_balance_cents: int, reset: bool) -> None:
         """Create a deterministic demo fixture once for this sandbox root."""
 
         with sqlite3.connect(self._db_path) as connection:
@@ -68,9 +74,22 @@ class Sandbox:
                 """
                 CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, stale INTEGER NOT NULL);
-                DELETE FROM users;
-                DELETE FROM sessions;
-                INSERT INTO users (id, email) VALUES (1, 'ada@example.test'), (2, 'grace@example.test');
-                INSERT INTO sessions (id, user_id, stale) VALUES (1, 1, 1), (2, 2, 0);
+                CREATE TABLE IF NOT EXISTS ledger (id INTEGER PRIMARY KEY CHECK (id = 1), cents INTEGER NOT NULL);
                 """
             )
+            if reset:
+                connection.executescript(
+                    """
+                    DELETE FROM users;
+                    DELETE FROM sessions;
+                    DELETE FROM ledger;
+                    INSERT INTO users (id, email) VALUES (1, 'ada@example.test'), (2, 'grace@example.test');
+                    INSERT INTO sessions (id, user_id, stale) VALUES (1, 1, 1), (2, 2, 0);
+                    """
+                )
+                connection.execute("INSERT INTO ledger (id, cents) VALUES (1, ?)", (opening_balance_cents,))
+            else:
+                connection.execute(
+                    "INSERT OR IGNORE INTO ledger (id, cents) VALUES (1, ?)",
+                    (opening_balance_cents,),
+                )

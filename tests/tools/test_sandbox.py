@@ -24,6 +24,18 @@ def test_sandbox_transfer_mutates_only_its_in_memory_ledger(tmp_path: Path) -> N
     assert receipt == {"to": "vendor", "cents": 250, "balance_cents": 750}
 
 
+def test_sandbox_can_resume_existing_state_without_resetting_it(tmp_path: Path) -> None:
+    root = tmp_path / "demo"
+    first = Sandbox(root, opening_balance_cents=1_000)
+    first.run_db("DELETE FROM sessions WHERE id = 1")
+    first.transfer(250, "vendor")
+
+    resumed = Sandbox(root, reset=False)
+
+    assert resumed.run_db("SELECT count(*) AS count FROM sessions")["rows"][0]["count"] == 1
+    assert resumed.inspect("ledger")["balance_cents"] == 750
+
+
 def test_sandbox_file_write_stays_under_its_root(tmp_path: Path) -> None:
     sandbox = Sandbox(tmp_path / "demo")
 
