@@ -195,6 +195,7 @@ class AssuranceCase(BaseModel):
     owner: str = Field(min_length=1)
     status: Literal["pending_review", "active", "rejected", "expired", "retired", "revoked"]
     reviewer: str | None = None
+    expires_at_epoch: int | None = Field(default=None, ge=0)
 
 
 class ReplayCaseResult(BaseModel):
