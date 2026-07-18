@@ -120,6 +120,7 @@ class AppState:
     agent_runner: AgentRunner
     policy_compiler: PolicyCompiler
     assurance_store: AssuranceStore
+    assurance_enabled: bool
     policy: Policy | None = None
     confirmed: bool = False
 
@@ -128,6 +129,7 @@ def create_app(
     event_log: EventLog,
     agent_runner: AgentRunner | None = None,
     policy_compiler: PolicyCompiler | None = None,
+    assurance_enabled: bool = True,
 ) -> FastAPI:
     """Create an app with injected persistence, making HTTP tests isolated."""
 
@@ -145,7 +147,14 @@ def create_app(
         agent_runner=agent_runner or _run_local_agent,
         policy_compiler=policy_compiler or compile_policy_with_openai,
         assurance_store=AssuranceStore(event_log.db_path),
+        assurance_enabled=assurance_enabled,
     )
+
+    def require_assurance() -> None:
+        """Keep assurance rollout independently disableable from runtime enforcement."""
+
+        if not state.assurance_enabled:
+            raise HTTPException(status_code=503, detail="Assurance workflows are disabled for this deployment.")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -173,10 +182,19 @@ def create_app(
     def runs() -> list[dict[str, object]]:
         return state.event_log.runs()
 
+    @app.get("/assurance/health")
+    def assurance_health() -> dict[str, str]:
+        """Report assurance availability without conflating it with runtime health."""
+
+        if not state.assurance_enabled:
+            return {"status": "disabled", "mode": "report_only"}
+        return {"status": "ok", "mode": "report_only"}
+
     @app.post("/assurance/diff")
     def assurance_diff(request: AssuranceDiffRequest) -> dict[str, object]:
         """Compare typed authority in report-only mode without dispatching an effect."""
 
+        require_assurance()
         delta = compare_authority(request.baseline.authority, request.candidate.authority)
         response = delta.model_dump(mode="json")
         response["has_expansion"] = delta.has_expansion
@@ -186,18 +204,21 @@ def create_app(
     def assurance_candidates(active_only: bool = False) -> list[AssuranceCase]:
         """List non-authoritative candidates or reviewer-approved active cases."""
 
+        require_assurance()
         return state.assurance_store.active_cases() if active_only else state.assurance_store.all_cases()
 
     @app.post("/assurance/candidates/expire")
     def expire_assurance_candidates(request: AssuranceExpirationRequest) -> dict[str, int]:
         """Expire active cases against an explicit caller-supplied cutoff."""
 
+        require_assurance()
         return {"expired_count": state.assurance_store.expire_cases(request.now_epoch)}
 
     @app.post("/assurance/candidates", response_model=AssuranceCase)
     def create_assurance_candidate(request: AssuranceCandidateRequest) -> AssuranceCase:
         """Capture a safe candidate; it cannot affect the runtime enforcement policy."""
 
+        require_assurance()
         try:
             return state.assurance_store.create_candidate(
                 title=request.title,
@@ -215,6 +236,7 @@ def create_app(
     ) -> AssuranceCase:
         """Resolve a candidate once, preserving a reviewer identity in SQLite."""
 
+        require_assurance()
         if resolution not in {"approved", "rejected"}:
             raise HTTPException(status_code=422, detail="Resolution must be approved or rejected.")
         try:
@@ -231,12 +253,14 @@ def create_app(
     def assurance_case_audit(case_id: int) -> list[dict[str, object]]:
         """Return append-only lifecycle evidence without exposing a mutation path."""
 
+        require_assurance()
         return state.assurance_store.audit_events(case_id)
 
     @app.post("/assurance/candidates/{case_id}/fixtures/attach")
     def attach_assurance_fixture(case_id: int, request: AssuranceFixtureRequest) -> dict[str, object]:
         """Attach one immutable local replay fixture to a reviewer-approved case."""
 
+        require_assurance()
         try:
             state.assurance_store.attach_replay_fixture(
                 case_id, policy=request.policy, steps=request.steps
@@ -249,6 +273,7 @@ def create_app(
     def replay_assurance_fixture(case_id: int) -> ReplayCaseResult:
         """Replay an approved fixture locally without dispatching any tool effect."""
 
+        require_assurance()
         try:
             return state.assurance_store.replay_active_case(case_id)
         except ValueError as error:
@@ -258,6 +283,7 @@ def create_app(
     def assurance_report(request: AssuranceReportRequest) -> ReleaseEvidenceBundle:
         """Assemble a report-only release verdict; this endpoint cannot dispatch a tool."""
 
+        require_assurance()
         delta = compare_authority(request.baseline.authority, request.candidate.authority)
         return build_evidence_bundle(
             baseline=request.baseline,
@@ -270,12 +296,14 @@ def create_app(
     def assurance_replay(request: AssuranceReplayRequest) -> ReplayCaseResult:
         """Run a side-effect-free case through the same deterministic policy simulator."""
 
+        require_assurance()
         return replay_case(case_id=request.case_id, policy=request.policy, steps=request.steps)
 
     @app.post("/assurance/verify")
     def verify_assurance_report(bundle: ReleaseEvidenceBundle) -> dict[str, bool]:
         """Verify evidence locally without consulting mutable server state."""
 
+        require_assurance()
         return {"valid": verify_evidence_bundle(bundle)}
 
     @app.post("/simulate", response_model=SimulationResult)
