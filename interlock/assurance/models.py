@@ -212,6 +212,17 @@ class ReplayCaseResult(BaseModel):
     step_decisions: tuple[str, ...] = ()
 
 
+class ReplayTrialAggregate(BaseModel):
+    """Repeat-trial result that preserves uncertainty from non-deterministic paths."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: int = Field(ge=1)
+    trial_count: int = Field(ge=1)
+    verdict: Literal["pass", "fail", "inconclusive"]
+    trials: tuple[ReplayCaseResult, ...]
+
+
 class ReleaseEvidenceBundle(BaseModel):
     """Portable report-only evidence for one proposed developer-agent release."""
 
