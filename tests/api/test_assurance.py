@@ -162,3 +162,21 @@ def test_assurance_lifecycle_api_expires_retires_and_aggregates_trials(tmp_path:
 
     assert expired.json() == {"expired_count": 1}
     assert audit.json()[-1]["action"] == "expired"
+
+
+def test_assurance_check_returns_local_advisory_payload(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+    report = client.post(
+        "/assurance/report",
+        json={
+            "baseline": _manifest("baseline", ["inspect"]),
+            "candidate": _manifest("candidate", ["inspect"]),
+            "replays": [{"case_id": 1, "passed": True}],
+        },
+    )
+
+    response = client.post("/assurance/check", json=report.json())
+
+    assert response.status_code == 200
+    assert response.json()["conclusion"] == "success"
+    assert response.json()["advisory"] is True

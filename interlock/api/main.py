@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from interlock.assurance.delta import compare_authority
+from interlock.assurance.check import AdvisoryCheck, build_advisory_check
 from interlock.assurance.evidence import build_evidence_bundle, verify_evidence_bundle
 from interlock.assurance.metrics import AssuranceMetrics, AssuranceMetricsSnapshot
 from interlock.assurance.models import AssuranceCase, ChangeManifest, ReleaseEvidenceBundle, ReplayCaseResult
@@ -316,6 +317,15 @@ def create_app(
 
         require_assurance()
         return {"valid": verify_evidence_bundle(bundle)}
+
+    @app.post("/assurance/check", response_model=AdvisoryCheck)
+    def assurance_check(bundle: ReleaseEvidenceBundle) -> AdvisoryCheck:
+        """Return a local advisory-check payload for a future CI/GitHub adapter."""
+
+        require_assurance()
+        if not verify_evidence_bundle(bundle):
+            raise HTTPException(status_code=422, detail="Evidence bundle verification failed.")
+        return build_advisory_check(bundle)
 
     @app.post("/simulate", response_model=SimulationResult)
     def simulate_policy(request: SimulationRequest) -> SimulationResult:
