@@ -40,3 +40,20 @@ def test_cli_verifies_a_bundle_and_rejects_tampered_evidence(tmp_path: Path, cap
 
     assert main(["verify", str(path)]) == 1
     assert json.loads(capsys.readouterr().out) == {"valid": False}
+
+
+def test_cli_captures_and_reviews_a_candidate_without_runtime_authority(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "assurance.sqlite"
+
+    assert main([
+        "case-create", "--db", str(db_path), "--title", "Preserve safe read",
+        "--summary", "The ledger read remains permitted.", "--source", "cli:test", "--owner", "qa@example.test",
+    ]) == 0
+    created = json.loads(capsys.readouterr().out)
+
+    assert created["status"] == "pending_review"
+    assert main([
+        "case-review", "--db", str(db_path), "--case-id", str(created["case_id"]),
+        "--resolution", "approved", "--reviewer", "reviewer@example.test",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "active"
