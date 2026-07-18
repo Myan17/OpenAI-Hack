@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from interlock.assurance.delta import compare_authority
 from interlock.assurance.evidence import build_evidence_bundle, verify_evidence_bundle
+from interlock.assurance.metrics import AssuranceMetrics, AssuranceMetricsSnapshot
 from interlock.assurance.models import AssuranceCase, ChangeManifest, ReleaseEvidenceBundle, ReplayCaseResult
 from interlock.assurance.replay import replay_case
 from interlock.assurance.store import AssuranceStore
@@ -121,6 +122,7 @@ class AppState:
     policy_compiler: PolicyCompiler
     assurance_store: AssuranceStore
     assurance_enabled: bool
+    assurance_metrics: AssuranceMetrics
     policy: Policy | None = None
     confirmed: bool = False
 
@@ -148,6 +150,7 @@ def create_app(
         policy_compiler=policy_compiler or compile_policy_with_openai,
         assurance_store=AssuranceStore(event_log.db_path),
         assurance_enabled=assurance_enabled,
+        assurance_metrics=AssuranceMetrics(),
     )
 
     def require_assurance() -> None:
@@ -190,12 +193,20 @@ def create_app(
             return {"status": "disabled", "mode": "report_only"}
         return {"status": "ok", "mode": "report_only"}
 
+    @app.get("/assurance/metrics", response_model=AssuranceMetricsSnapshot)
+    def assurance_metrics() -> AssuranceMetricsSnapshot:
+        """Return aggregate rollout counters without trace or prompt content."""
+
+        require_assurance()
+        return state.assurance_metrics.snapshot()
+
     @app.post("/assurance/diff")
     def assurance_diff(request: AssuranceDiffRequest) -> dict[str, object]:
         """Compare typed authority in report-only mode without dispatching an effect."""
 
         require_assurance()
         delta = compare_authority(request.baseline.authority, request.candidate.authority)
+        state.assurance_metrics.record("authority_diff")
         response = delta.model_dump(mode="json")
         response["has_expansion"] = delta.has_expansion
         return response
