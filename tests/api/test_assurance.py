@@ -85,3 +85,36 @@ def test_assurance_report_and_verify_are_report_only_and_tamper_evident(tmp_path
     assert report.json()["verdict"] == "pass"
     assert verified.json() == {"valid": True}
     assert rejected.json() == {"valid": False}
+
+
+def test_assurance_replay_uses_the_existing_effect_free_simulator(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+
+    response = client.post(
+        "/assurance/replay",
+        json={
+            "case_id": 9,
+            "policy": {"task": "inspect", "allowed_tools": ["inspect"]},
+            "steps": [
+                {
+                    "id": "read",
+                    "description": "Read the ledger.",
+                    "expected_safe": True,
+                    "action": {"tool": "inspect", "args": {"resource": "ledger"}},
+                    "context": {},
+                },
+                {
+                    "id": "drop",
+                    "description": "Drop a table.",
+                    "expected_safe": False,
+                    "action": {"tool": "db", "args": {"sql": "DROP TABLE users"}},
+                    "context": {},
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["passed"] is True
+    assert response.json()["step_decisions"] == ["allow", "halt"]
+    assert client.get("/events").json() == []

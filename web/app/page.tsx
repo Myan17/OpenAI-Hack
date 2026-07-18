@@ -29,6 +29,11 @@ type SimulationResult = {
   };
 };
 type Guardrail = { id: number; name: string; pattern: string; reason: string; status: "pending" | "approved" | "rejected" };
+type AssuranceCandidate = {
+  case_id: number; title: string; summary: string; source: string; owner: string;
+  status: "pending_review" | "active" | "rejected" | "expired" | "retired" | "revoked";
+  reviewer: string | null;
+};
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -45,6 +50,7 @@ export default function Page() {
   const [events, setEvents] = useState<VerdictEvent[]>([]);
   const [simulation, setSimulation] = useState<SimulationResult | null>(null);
   const [guardrails, setGuardrails] = useState<Guardrail[]>([]);
+  const [assuranceCandidates, setAssuranceCandidates] = useState<AssuranceCandidate[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [status, setStatus] = useState("Draft a least-privilege policy to begin.");
   const [busy, setBusy] = useState(false);
@@ -65,6 +71,10 @@ export default function Page() {
 
   useEffect(() => {
     requestJson<Guardrail[]>("/guardrails").then(setGuardrails).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    requestJson<AssuranceCandidate[]>("/assurance/candidates").then(setAssuranceCandidates).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -168,6 +178,41 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
+  async function draftAssuranceCandidate() {
+    setBusy(true);
+    try {
+      const candidate = await requestJson<AssuranceCandidate>("/assurance/candidates", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Preserve destructive-action halt",
+          summary: "A verified demo path attempted DROP TABLE users and must remain halted in future policy changes.",
+          source: "demo:deterministic-halt",
+          owner: "local-demo-reviewer",
+        }),
+      });
+      setAssuranceCandidates((current) => [...current, candidate]);
+      setStatus("Assurance candidate captured. It is inert until a reviewer approves it for replay coverage.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not capture the assurance candidate.");
+    } finally { setBusy(false); }
+  }
+
+  async function resolveAssuranceCandidate(caseId: number, resolution: "approved" | "rejected") {
+    setBusy(true);
+    try {
+      const candidate = await requestJson<AssuranceCandidate>(`/assurance/candidates/${caseId}/${resolution}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewer: "local-demo-reviewer" }),
+      });
+      setAssuranceCandidates((current) => current.map((item) => item.case_id === caseId ? candidate : item));
+      setStatus(resolution === "approved"
+        ? "Assurance case approved. It is now eligible for isolated replay, not direct policy mutation."
+        : "Assurance candidate rejected. It remains excluded from replay and enforcement.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not resolve the assurance candidate.");
+    } finally { setBusy(false); }
+  }
+
   async function resolveEscalation(eventId: number, resolution: "approved" | "rejected") {
     setBusy(true);
     try {
@@ -214,6 +259,14 @@ export default function Page() {
       {guardrails.length === 0 ? <p>No learned guardrails yet.</p> : guardrails.map((guardrail) => <article key={guardrail.id} className={guardrail.status === "approved" ? "allow" : guardrail.status === "rejected" ? "halt" : "escalate"}>
         <b>{guardrail.status.toUpperCase()}</b> · {guardrail.name} — <code>{guardrail.pattern}</code><small>{guardrail.reason}</small>
         {guardrail.status === "pending" && <span className="approval-actions"><button onClick={() => resolveGuardrail(guardrail.id, "approved")} disabled={busy}>Approve</button><button className="reject" onClick={() => resolveGuardrail(guardrail.id, "rejected")} disabled={busy}>Reject</button></span>}
+      </article>)}
+    </section>
+    <section className="panel"><h2>Assurance memory</h2>
+      <p>Observed failures become versioned release-test candidates. They never enter the agent prompt or change enforcement automatically.</p>
+      <button onClick={draftAssuranceCandidate} disabled={busy}>Capture destructive-action regression</button>
+      {assuranceCandidates.length === 0 ? <p>No assurance candidates captured yet.</p> : assuranceCandidates.map((candidate) => <article key={candidate.case_id} className={candidate.status === "active" ? "allow" : candidate.status === "rejected" ? "halt" : "escalate"}>
+        <b>{candidate.status.replace("_", " ").toUpperCase()}</b> · {candidate.title}<small>{candidate.summary} · {candidate.source}</small>
+        {candidate.status === "pending_review" && <span className="approval-actions"><button onClick={() => resolveAssuranceCandidate(candidate.case_id, "approved")} disabled={busy}>Approve for replay</button><button className="reject" onClick={() => resolveAssuranceCandidate(candidate.case_id, "rejected")} disabled={busy}>Reject</button></span>}
       </article>)}
     </section>
     <section className="panel"><h2>Live verdicts</h2>

@@ -79,6 +79,24 @@ The engine purity test imports each `interlock.engine` module in a fresh process
 no model or network client is pulled into the enforcement path. Simulator traces are evaluated by
 the same pure decision engine and never reach tool dispatch.
 
+## Developer-agent change control
+
+The **Assurance memory** panel is an additive, report-only release-control path. A verified
+failure can be captured as an assurance candidate, but it has no policy or prompt authority.
+Only a human reviewer can make it an active replay case. The assurance API can then compare two
+typed release manifests, replay a labeled trace through the existing no-effect simulator, and
+produce a tamper-evident release evidence bundle.
+
+The local verifier is suitable for CI and does not contact the API server:
+
+```bash
+.venv/bin/python -m interlock.assurance.cli verify evidence-bundle.json
+```
+
+It returns exit status `0` only for a valid bundle, `1` for tampered/invalid evidence, and `2`
+for unreadable or malformed input. This layer is advisory by design: it cannot change a runtime
+policy, invoke a model, or execute a tool action.
+
 ## Limits
 
 This is a hackathon proof, not a production security product. The sandbox and GitHub-style adapter

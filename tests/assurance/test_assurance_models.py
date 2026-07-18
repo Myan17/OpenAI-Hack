@@ -43,4 +43,3 @@ def test_manifest_rejects_unknown_fields_and_invalid_component_digest() -> None:
                 "surprise": "not allowed",
             }
         )
-

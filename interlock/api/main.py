@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from interlock.assurance.delta import compare_authority
 from interlock.assurance.evidence import build_evidence_bundle, verify_evidence_bundle
 from interlock.assurance.models import AssuranceCase, ChangeManifest, ReleaseEvidenceBundle, ReplayCaseResult
+from interlock.assurance.replay import replay_case
 from interlock.assurance.store import AssuranceStore
 from interlock.api.eventlog import EventLog
 from interlock.engine.enforcer import enforce
@@ -88,6 +89,14 @@ class AssuranceReportRequest(BaseModel):
     baseline: ChangeManifest
     candidate: ChangeManifest
     replays: list[ReplayCaseResult]
+
+
+class AssuranceReplayRequest(BaseModel):
+    """One typed, effect-free case replayed through the existing simulator."""
+
+    case_id: int
+    policy: Policy
+    steps: list[SimulationStep]
 
 
 @dataclass
@@ -208,6 +217,12 @@ def create_app(
             delta=delta,
             replays=request.replays,
         )
+
+    @app.post("/assurance/replay", response_model=ReplayCaseResult)
+    def assurance_replay(request: AssuranceReplayRequest) -> ReplayCaseResult:
+        """Run a side-effect-free case through the same deterministic policy simulator."""
+
+        return replay_case(case_id=request.case_id, policy=request.policy, steps=request.steps)
 
     @app.post("/assurance/verify")
     def verify_assurance_report(bundle: ReleaseEvidenceBundle) -> dict[str, bool]:
