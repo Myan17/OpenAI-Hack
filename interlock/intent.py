@@ -28,6 +28,14 @@ class PolicyDraft(BaseModel):
     allowed_db_tables: list[str] = Field(default_factory=list)
     spend_cap_cents: int = 0
     forbidden_patterns: list[str] = Field(default_factory=list)
+    allowed_agent_ids: list[str] = Field(default_factory=list)
+    allowed_human_principals: list[str] = Field(default_factory=list)
+    allowed_environments: list[str] = Field(default_factory=list)
+    allowed_asset_ids: list[str] = Field(default_factory=list)
+    max_asset_criticality: str = "high"
+    expires_at_epoch: int | None = None
+    allowed_github_operations: list[str] = Field(default_factory=list)
+    allowed_github_repositories: list[str] = Field(default_factory=list)
 
 
 def compile_policy(task: str, client: PolicyCompilerClient) -> Policy:
@@ -70,7 +78,7 @@ async def _run_openai_compiler(task: str) -> object:
         output_type=PolicyDraft,
         instructions=(
             "Translate the user's task into the least-privilege Interlock Policy schema. "
-            "Only name these local tools: db, inspect, fs_write, transfer. "
+            "Only name these local tools: db, inspect, fs_write, transfer, github. "
             "Use an empty allowlist when the task is ambiguous. "
             "Never authorize DROP TABLE, unknown database tables, arbitrary paths, or money "
             "movement unless the task explicitly requires it."

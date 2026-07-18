@@ -14,6 +14,10 @@ pre { overflow: auto; font-size: .8rem; }
 .actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .8rem; }
 .attack-toggle { color: #ffc857; display: block; font-weight: 700; margin-top: 1rem; }
 .attack-toggle input { accent-color: #ffc857; margin-right: .5rem; }
+.metrics { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); margin-bottom: 1rem; }
+.metrics article { background: #111b2e; border: 1px solid #273a59; border-radius: .5rem; padding: .75rem; }
+.metrics b { display: block; font-size: 1.45rem; }
+.metrics span { color: #a8b6cc; font-size: .8rem; }
 button { background: #6d8cff; border: 0; border-radius: 7px; color: #071023; cursor: pointer; font-weight: 800; padding: .7rem 1rem; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .status { color: #b8c8ef; }

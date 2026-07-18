@@ -12,7 +12,23 @@ type Policy = {
   allowed_db_tables: string[];
   spend_cap_cents: number;
   forbidden_patterns: string[];
+  allowed_agent_ids: string[];
+  allowed_human_principals: string[];
+  allowed_environments: string[];
+  allowed_asset_ids: string[];
+  max_asset_criticality: "low" | "medium" | "high";
+  expires_at_epoch: number | null;
+  allowed_github_operations: string[];
+  allowed_github_repositories: string[];
 };
+type SimulationResult = {
+  results: Array<{ step_id: string; expected_safe: boolean; verdict: VerdictEvent }>;
+  metrics: {
+    allowed_safe: number; blocked_safe: number; stopped_unsafe: number; missed_unsafe: number;
+    impacted_actions: number; impacted_sessions: number;
+  };
+};
+type Guardrail = { id: number; name: string; pattern: string; reason: string; status: "pending" | "approved" | "rejected" };
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -27,6 +43,8 @@ export default function Page() {
   const [draft, setDraft] = useState<Policy | null>(null);
   const [policyJson, setPolicyJson] = useState("");
   const [events, setEvents] = useState<VerdictEvent[]>([]);
+  const [simulation, setSimulation] = useState<SimulationResult | null>(null);
+  const [guardrails, setGuardrails] = useState<Guardrail[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [status, setStatus] = useState("Draft a least-privilege policy to begin.");
   const [busy, setBusy] = useState(false);
@@ -43,6 +61,10 @@ export default function Page() {
     const source = new EventSource(`${API}/stream`);
     source.onmessage = (event) => appendEvent(JSON.parse(event.data) as VerdictEvent);
     return () => { active = false; source.close(); };
+  }, []);
+
+  useEffect(() => {
+    requestJson<Guardrail[]>("/guardrails").then(setGuardrails).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -106,6 +128,46 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
+  async function simulateDeveloperTrace() {
+    setBusy(true);
+    try {
+      const result = await requestJson<SimulationResult>("/simulate/developer-trace", { method: "POST" });
+      setSimulation(result);
+      setStatus("Policy simulation complete. Review safety coverage and agentic friction below.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not simulate the developer trace.");
+    } finally { setBusy(false); }
+  }
+
+  async function draftDemoGuardrail() {
+    setBusy(true);
+    try {
+      const guardrail = await requestJson<Guardrail>("/guardrails", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Block destructive table drops",
+          pattern: "DROP TABLE",
+          reason: "Candidate derived from a verified blocked developer-agent trace.",
+        }),
+      });
+      setGuardrails((current) => [guardrail, ...current]);
+      setStatus("Guardrail candidate recorded. A human reviewer must approve it before it affects future policies.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not draft the guardrail.");
+    } finally { setBusy(false); }
+  }
+
+  async function resolveGuardrail(id: number, resolution: "approved" | "rejected") {
+    setBusy(true);
+    try {
+      const guardrail = await requestJson<Guardrail>(`/guardrails/${id}/${resolution}`, { method: "POST" });
+      setGuardrails((current) => current.map((item) => item.id === id ? guardrail : item));
+      setStatus(`Guardrail ${resolution}. Only approved guardrails are composed into future policies.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not resolve the guardrail.");
+    } finally { setBusy(false); }
+  }
+
   async function resolveEscalation(eventId: number, resolution: "approved" | "rejected") {
     setBusy(true);
     try {
@@ -124,12 +186,35 @@ export default function Page() {
       <div className="actions">
         <button onClick={draftPolicy} disabled={busy}>Draft policy</button>
         <button onClick={confirmPolicy} disabled={!draft || busy}>Confirm policy</button>
+        <button onClick={simulateDeveloperTrace} disabled={!draft || busy}>Simulate developer trace</button>
         <button onClick={runSafetyDemo} disabled={!draft || busy}>Run safety demo</button>
         <button onClick={runAgent} disabled={!draft || busy}>Run GPT agent</button>
       </div>
       <label className="attack-toggle"><input type="checkbox" checked={injectAttack} onChange={(event) => setInjectAttack(event.target.checked)} /> Add an unsafe instruction to the GPT prompt</label>
       <p className="status" aria-live="polite">{status}</p>
       {draft && <><label htmlFor="policy-json">Editable policy draft</label><textarea id="policy-json" className="policy-json" value={policyJson} onChange={(event) => setPolicyJson(event.target.value)} /></>}
+    </section>
+    <section className="panel"><h2>Policy simulator</h2>
+      {!simulation ? <p>Replay the built-in staging developer trace to measure policy coverage before any action is dispatched.</p> : <>
+        <div className="metrics">
+          <article><b>{simulation.metrics.allowed_safe}</b><span> safe actions allowed</span></article>
+          <article><b>{simulation.metrics.stopped_unsafe}</b><span> unsafe actions stopped</span></article>
+          <article><b>{simulation.metrics.blocked_safe}</b><span> false blocks</span></article>
+          <article><b>{simulation.metrics.missed_unsafe}</b><span> unsafe misses</span></article>
+          <article><b>{simulation.metrics.impacted_sessions}</b><span> impacted sessions</span></article>
+        </div>
+        {simulation.results.map((item) => <article key={item.step_id} className={item.verdict.decision}>
+          <b>{item.verdict.decision.toUpperCase()}</b> · {item.step_id} — {item.verdict.reason}
+        </article>)}
+      </>}
+    </section>
+    <section className="panel"><h2>Learning guardrails</h2>
+      <p>Verified incidents become reviewable candidates. Agents cannot activate their own guardrails.</p>
+      <button onClick={draftDemoGuardrail} disabled={busy}>Draft DROP TABLE guardrail</button>
+      {guardrails.length === 0 ? <p>No learned guardrails yet.</p> : guardrails.map((guardrail) => <article key={guardrail.id} className={guardrail.status === "approved" ? "allow" : guardrail.status === "rejected" ? "halt" : "escalate"}>
+        <b>{guardrail.status.toUpperCase()}</b> · {guardrail.name} — <code>{guardrail.pattern}</code><small>{guardrail.reason}</small>
+        {guardrail.status === "pending" && <span className="approval-actions"><button onClick={() => resolveGuardrail(guardrail.id, "approved")} disabled={busy}>Approve</button><button className="reject" onClick={() => resolveGuardrail(guardrail.id, "rejected")} disabled={busy}>Reject</button></span>}
+      </article>)}
     </section>
     <section className="panel"><h2>Live verdicts</h2>
       {events.length === 0 ? <p>No tool calls yet.</p> : events.map((event) => <article key={event.id} className={event.decision}>

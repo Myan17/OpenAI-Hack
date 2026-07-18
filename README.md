@@ -16,8 +16,10 @@ human-confirmed scope instead of trying to classify whether a prompt "looks mali
 
 ## The contract
 
-1. **Intent, not content.** A typed policy defines permitted tools, database operations/tables,
-   filesystem roots, budget, and forbidden patterns.
+1. **Intent, identity, and assets.** A typed policy defines permitted tools, database
+   operations/tables, filesystem roots, GitHub operations/repositories, budget, forbidden
+   patterns, agent identity, delegated human principal, environment, asset scope, criticality,
+   and expiry.
 2. **Known reads stay frictionless.** A recognized, authorized read is allowed immediately.
    Unknown, malformed, disallowed, and forbidden calls fail closed.
 3. **The verifier is deterministic.** GPT-5.6 may draft a policy once. It is not imported by,
@@ -56,8 +58,12 @@ cd web && npm install && npm run dev
 ```
 
 Open `http://127.0.0.1:3000`, draft a policy, inspect it, explicitly confirm it, and run the
-guarded agent. The **Inject attack prompt** control intentionally adds a `DROP TABLE` / transfer
-instruction to the agent prompt; the event feed should show the deterministic halts.
+guarded agent. The **Policy simulator** replays a labeled staging developer-agent trace without
+dispatching any effects, reporting safe actions allowed, unsafe actions stopped, false blocks,
+unsafe misses, and impacted sessions. The **Learning guardrails** panel records a candidate from
+a verified pattern; only a human-approved candidate is composed into future policies. The **Inject
+attack prompt** control intentionally adds a `DROP TABLE` / transfer instruction to the agent
+prompt; the event feed should show the deterministic halts.
 
 In-scope irreversible actions deliberately emit `ESCALATE` rather than running automatically.
 The dashboard’s **Approve** and **Reject** controls resolve the exact stored action only once;
@@ -70,11 +76,13 @@ adversarial, malformed, forbidden, or out-of-scope actions. The gate fails if an
 action is not halted or a known-good action is blocked.
 
 The engine purity test imports each `interlock.engine` module in a fresh process and asserts that
-no model or network client is pulled into the enforcement path.
+no model or network client is pulled into the enforcement path. Simulator traces are evaluated by
+the same pure decision engine and never reach tool dispatch.
 
 ## Limits
 
-This is a hackathon proof, not a production security product. The sandbox is intentionally
-local, the policy compiler is conservative and falls back to deny-all on failure, and in-policy
-irreversible actions currently return `ESCALATE` rather than executing automatically. A production
-version would add durable approval/resume workflows and external identity/audit integrations.
+This is a hackathon proof, not a production security product. The sandbox and GitHub-style adapter
+are intentionally local, the policy compiler is conservative and falls back to deny-all on failure,
+and in-policy irreversible actions currently return `ESCALATE` rather than executing automatically.
+A production version would use cryptographic agent identity, a real MCP policy gateway, external
+asset inventory, signed approvals, and tamper-evident audit exports.

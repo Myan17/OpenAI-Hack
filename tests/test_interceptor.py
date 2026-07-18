@@ -8,6 +8,8 @@ from interlock.engine.models import (
     DbArgs,
     Decision,
     EnforcementContext,
+    GitHubAction,
+    GitHubArgs,
     Policy,
     TransferAction,
     TransferArgs,
@@ -69,4 +71,27 @@ async def test_allowed_action_dispatches_and_emits_once(tmp_path: Path) -> None:
 
     assert result["rows"][0]["count"] == 2
     assert len(sink.verdicts) == 1
+    assert sink.verdicts[0].decision == Decision.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_allowed_github_read_dispatches_only_to_the_local_adapter(tmp_path: Path) -> None:
+    sandbox = Sandbox(tmp_path / "demo")
+    sink = RecordingSink()
+    github_policy = Policy(
+        task="read issue",
+        allowed_tools={"github"},
+        allowed_github_operations={"read_issue"},
+        allowed_github_repositories={"acme/api"},
+    )
+
+    result = await guarded_call(
+        GitHubAction(args=GitHubArgs(operation="read_issue", repository="acme/api", issue_number=42)),
+        github_policy,
+        EnforcementContext(),
+        sink,
+        sandbox,
+    )
+
+    assert result == {"operation": "read_issue", "repository": "acme/api", "issue_number": 42}
     assert sink.verdicts[0].decision == Decision.ALLOW

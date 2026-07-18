@@ -132,6 +132,62 @@ class EventLog:
             rows = connection.execute("SELECT id, status, detail FROM runs ORDER BY id DESC").fetchall()
         return [dict(row) for row in rows]
 
+    def create_guardrail(self, name: str, pattern: str, reason: str) -> dict[str, object]:
+        """Store a human-reviewable guardrail candidate without activating it."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            cursor = connection.execute(
+                "INSERT INTO guardrails (name, pattern, reason, status) VALUES (?, ?, ?, 'pending')",
+                (name, pattern, reason),
+            )
+            guardrail_id = int(cursor.lastrowid)
+        return self.guardrail(guardrail_id)
+
+    def resolve_guardrail(self, guardrail_id: int, status: str) -> dict[str, object] | None:
+        """Approve or reject a pending guardrail exactly once."""
+
+        if status not in {"approved", "rejected"}:
+            raise ValueError("guardrail status must be approved or rejected")
+        with sqlite3.connect(self._db_path) as connection:
+            cursor = connection.execute(
+                "UPDATE guardrails SET status = ? WHERE id = ? AND status = 'pending'",
+                (status, guardrail_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+        return self.guardrail(guardrail_id)
+
+    def guardrail(self, guardrail_id: int) -> dict[str, object]:
+        """Return one durable guardrail record."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            connection.row_factory = sqlite3.Row
+            row = connection.execute(
+                "SELECT id, name, pattern, reason, status FROM guardrails WHERE id = ?", (guardrail_id,)
+            ).fetchone()
+        if row is None:
+            raise ValueError("guardrail does not exist")
+        return dict(row)
+
+    def guardrails(self) -> list[dict[str, object]]:
+        """Return candidates and active learning records for policy review."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT id, name, pattern, reason, status FROM guardrails ORDER BY id DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def active_forbidden_patterns(self) -> list[str]:
+        """Return only human-approved global guardrails for policy composition."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            rows = connection.execute(
+                "SELECT pattern FROM guardrails WHERE status = 'approved' ORDER BY id"
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
     def since(self, event_id: int) -> list[dict[str, object]]:
         """Return audit rows strictly newer than an event id."""
 
@@ -176,6 +232,17 @@ class EventLog:
                     event_id INTEGER PRIMARY KEY REFERENCES events(id),
                     action_json TEXT NOT NULL,
                     policy_json TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected'))
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guardrails (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    pattern TEXT NOT NULL,
+                    reason TEXT NOT NULL,
                     status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected'))
                 )
                 """

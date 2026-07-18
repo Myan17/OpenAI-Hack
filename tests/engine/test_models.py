@@ -2,6 +2,7 @@ from pydantic import ValidationError
 import pytest
 
 from interlock.engine.models import (
+    AssetCriticality,
     DbArgs,
     DbAction,
     EnforcementContext,
@@ -38,3 +39,17 @@ def test_action_payloads_reject_the_wrong_shape() -> None:
 
 def test_enforcement_context_starts_with_no_spend() -> None:
     assert EnforcementContext().spent_cents == 0
+
+
+def test_contextual_policy_fields_default_to_unscoped_local_compatibility() -> None:
+    policy = Policy(task="inspect sessions")
+    context = EnforcementContext()
+
+    assert policy.allowed_agent_ids == set()
+    assert policy.allowed_environments == set()
+    assert policy.allowed_asset_ids == set()
+    assert policy.max_asset_criticality == AssetCriticality.HIGH
+    assert policy.expires_at_epoch is None
+    assert policy.allowed_github_operations == set()
+    assert policy.allowed_github_repositories == set()
+    assert context.asset_criticality == AssetCriticality.LOW

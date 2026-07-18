@@ -66,6 +66,25 @@ class Sandbox:
             return self.run_db("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
         raise ValueError("unknown inspection resource")
 
+    def github(
+        self,
+        operation: str,
+        repository: str,
+        branch: str | None = None,
+        issue_number: int | None = None,
+        pull_request_number: int | None = None,
+    ) -> dict[str, object]:
+        """Return a contained GitHub-style adapter receipt without contacting GitHub."""
+
+        result: dict[str, object] = {"operation": operation, "repository": repository}
+        if branch is not None:
+            result["branch"] = branch
+        if issue_number is not None:
+            result["issue_number"] = issue_number
+        if pull_request_number is not None:
+            result["pull_request_number"] = pull_request_number
+        return result
+
     def _initialize_database(self, opening_balance_cents: int, reset: bool) -> None:
         """Create a deterministic demo fixture once for this sandbox root."""
 

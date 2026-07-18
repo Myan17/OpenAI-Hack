@@ -3,6 +3,7 @@
 from interlock.engine.models import (
     DbAction,
     FsWriteAction,
+    GitHubAction,
     InspectAction,
     ProposedAction,
     Reversibility,
@@ -34,6 +35,10 @@ def classify(action: ProposedAction) -> Reversibility:
     if isinstance(action, InspectAction):
         return Reversibility.REVERSIBLE
     if isinstance(action, (TransferAction, FsWriteAction)):
+        return Reversibility.IRREVERSIBLE
+    if isinstance(action, GitHubAction):
+        if action.args.operation in {"read_issue", "read_pull_request"}:
+            return Reversibility.REVERSIBLE
         return Reversibility.IRREVERSIBLE
     if isinstance(action, DbAction):
         return _classify_sql(action.args.sql)

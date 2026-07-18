@@ -8,6 +8,7 @@ from interlock.engine.models import (
     Decision,
     EnforcementContext,
     FsWriteAction,
+    GitHubAction,
     Policy,
     ProposedAction,
     Reversibility,
@@ -16,9 +17,11 @@ from interlock.engine.models import (
 )
 from interlock.engine.patterns import matches_forbidden
 from interlock.engine.scope import (
+    criticality_in_scope,
     db_op_allowed,
     db_table_allowed,
     path_in_scope,
+    value_in_scope,
     within_spend,
 )
 
@@ -30,6 +33,60 @@ def enforce(
 ) -> Verdict:
     """Return the deterministic verdict for one typed proposed action."""
 
+    if policy.expires_at_epoch is not None and context.evaluated_at_epoch > policy.expires_at_epoch:
+        return _verdict(
+            Decision.HALT,
+            Reversibility.UNKNOWN,
+            "The confirmed policy has expired for this action context.",
+            "expires_at_epoch",
+            action,
+        )
+
+    if not value_in_scope(context.agent_id, policy.allowed_agent_ids):
+        return _verdict(
+            Decision.HALT,
+            Reversibility.UNKNOWN,
+            "This agent identity is not authorized by the confirmed policy.",
+            "allowed_agent_ids",
+            action,
+        )
+
+    if not value_in_scope(context.human_principal, policy.allowed_human_principals):
+        return _verdict(
+            Decision.HALT,
+            Reversibility.UNKNOWN,
+            "This human principal is not authorized to delegate this action.",
+            "allowed_human_principals",
+            action,
+        )
+
+    if not value_in_scope(context.environment.value, {item.value for item in policy.allowed_environments}):
+        return _verdict(
+            Decision.HALT,
+            Reversibility.UNKNOWN,
+            "This environment is outside the confirmed policy scope.",
+            "allowed_environments",
+            action,
+        )
+
+    if not value_in_scope(context.asset_id, policy.allowed_asset_ids):
+        return _verdict(
+            Decision.HALT,
+            Reversibility.UNKNOWN,
+            "This target asset is outside the confirmed policy scope.",
+            "allowed_asset_ids",
+            action,
+        )
+
+    if not criticality_in_scope(context.asset_criticality, policy.max_asset_criticality):
+        return _verdict(
+            Decision.HALT,
+            Reversibility.UNKNOWN,
+            "The target asset exceeds the policy's criticality ceiling.",
+            "max_asset_criticality",
+            action,
+        )
+
     if action.tool not in policy.allowed_tools:
         return _verdict(
             Decision.HALT,
@@ -38,6 +95,24 @@ def enforce(
             "allowed_tools",
             action,
         )
+
+    if isinstance(action, GitHubAction):
+        if not value_in_scope(action.args.operation, policy.allowed_github_operations):
+            return _verdict(
+                Decision.HALT,
+                Reversibility.UNKNOWN,
+                "The GitHub operation is not authorized by the policy.",
+                "allowed_github_operations",
+                action,
+            )
+        if not value_in_scope(action.args.repository, policy.allowed_github_repositories):
+            return _verdict(
+                Decision.HALT,
+                Reversibility.UNKNOWN,
+                "The GitHub repository is not authorized by the policy.",
+                "allowed_github_repositories",
+                action,
+            )
 
     try:
         forbidden = matches_forbidden(action, policy.forbidden_patterns)

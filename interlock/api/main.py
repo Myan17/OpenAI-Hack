@@ -16,6 +16,12 @@ from interlock.engine.enforcer import enforce
 from interlock.engine.models import DbAction, DbArgs, Decision, EnforcementContext, InspectAction, InspectArgs, Policy
 from interlock.interceptor import dispatch_after_approval, guarded_call
 from interlock.intent import compile_policy_with_openai
+from interlock.engine.simulator import (
+    SimulationResult,
+    SimulationStep,
+    developer_agent_trace,
+    simulate,
+)
 from interlock.tools.sandbox import Sandbox
 
 
@@ -33,6 +39,21 @@ class RunRequest(BaseModel):
 
 class PolicyUpdate(Policy):
     confirmed: bool = False
+
+
+class SimulationRequest(BaseModel):
+    """A proposed policy plus labeled trace to replay without side effects."""
+
+    policy: Policy
+    steps: list[SimulationStep]
+
+
+class GuardrailRequest(BaseModel):
+    """A human-reviewable pattern learned from a verified incident or simulation."""
+
+    name: str
+    pattern: str
+    reason: str
 
 
 @dataclass
@@ -93,6 +114,37 @@ def create_app(
     def runs() -> list[dict[str, object]]:
         return state.event_log.runs()
 
+    @app.post("/simulate", response_model=SimulationResult)
+    def simulate_policy(request: SimulationRequest) -> SimulationResult:
+        """Evaluate a candidate policy against a trace without emitting or dispatching actions."""
+
+        return simulate(_with_global_guardrails(request.policy, state.event_log), request.steps)
+
+    @app.post("/simulate/developer-trace", response_model=SimulationResult)
+    def simulate_developer_trace() -> SimulationResult:
+        """Replay the built-in DevOps trace against the currently drafted policy."""
+
+        if state.policy is None:
+            raise HTTPException(status_code=409, detail="Draft a policy before simulating it.")
+        return simulate(_with_global_guardrails(state.policy, state.event_log), developer_agent_trace())
+
+    @app.get("/guardrails")
+    def guardrails() -> list[dict[str, object]]:
+        return state.event_log.guardrails()
+
+    @app.post("/guardrails")
+    def create_guardrail(request: GuardrailRequest) -> dict[str, object]:
+        return state.event_log.create_guardrail(request.name, request.pattern, request.reason)
+
+    @app.post("/guardrails/{guardrail_id}/{resolution}")
+    def resolve_guardrail(guardrail_id: int, resolution: str) -> dict[str, object]:
+        if resolution not in {"approved", "rejected"}:
+            raise HTTPException(status_code=422, detail="Resolution must be approved or rejected.")
+        guardrail = state.event_log.resolve_guardrail(guardrail_id, resolution)
+        if guardrail is None:
+            raise HTTPException(status_code=409, detail="This guardrail is not pending.")
+        return guardrail
+
     @app.get("/stream")
     async def stream() -> StreamingResponse:
         queue = state.event_log.subscribe()
@@ -111,12 +163,13 @@ def create_app(
     async def run_agent(request: RunRequest, background_tasks: BackgroundTasks) -> dict[str, object]:
         if state.policy is None or not state.confirmed:
             raise HTTPException(status_code=409, detail="A confirmed policy is required before a run.")
+        effective_policy = _with_global_guardrails(state.policy, state.event_log)
         run_id = state.event_log.start_run()
         background_tasks.add_task(
             _execute_agent_run,
             run_id,
             state.agent_runner,
-            state.policy,
+            effective_policy,
             request.prompt,
             state.event_log,
             state.sandbox_root,
@@ -135,18 +188,19 @@ def create_app(
         if state.policy is None or not state.confirmed:
             raise HTTPException(status_code=409, detail="A confirmed policy is required before a demo.")
         run_id = state.event_log.start_run()
+        policy = _with_global_guardrails(state.policy, state.event_log)
         sandbox = Sandbox(state.sandbox_root)
         try:
             allowed = await guarded_call(
                 InspectAction(args=InspectArgs(resource="db_schema")),
-                state.policy,
+                policy,
                 EnforcementContext(),
                 state.event_log,
                 sandbox,
             )
             blocked = await guarded_call(
                 DbAction(args=DbArgs(sql="DROP TABLE users")),
-                state.policy,
+                policy,
                 EnforcementContext(),
                 state.event_log,
                 sandbox,
@@ -174,6 +228,13 @@ def create_app(
         return {"event_id": event_id, "resolution": "approved", "result": result}
 
     return app
+
+
+def _with_global_guardrails(policy: Policy, event_log: EventLog) -> Policy:
+    """Compose approved organizational patterns with a run's human-confirmed policy."""
+
+    patterns = list(dict.fromkeys([*policy.forbidden_patterns, *event_log.active_forbidden_patterns()]))
+    return policy.model_copy(update={"forbidden_patterns": patterns})
 
 
 async def _run_local_agent(policy: Policy, prompt: str, event_log: EventLog, sandbox_root: Path) -> str:

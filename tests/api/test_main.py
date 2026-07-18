@@ -102,6 +102,93 @@ def test_health_endpoint_reports_api_ready(tmp_path: Path) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_simulation_endpoint_replays_actions_without_dispatching(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=static_compiler))
+    policy = Policy(task="inspect", allowed_tools={"inspect"})
+
+    response = client.post(
+        "/simulate",
+        json={
+            "policy": policy.model_dump(mode="json"),
+            "steps": [
+                {
+                    "id": "safe-read",
+                    "description": "Read the ledger.",
+                    "expected_safe": True,
+                    "action": {"tool": "inspect", "args": {"resource": "ledger"}},
+                    "context": {"session_id": "simulation-1"},
+                },
+                {
+                    "id": "unsafe-drop",
+                    "description": "Drop a table.",
+                    "expected_safe": False,
+                    "action": {"tool": "db", "args": {"sql": "DROP TABLE users"}},
+                    "context": {"session_id": "simulation-1"},
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["metrics"] == {
+        "allowed_safe": 1,
+        "blocked_safe": 0,
+        "stopped_unsafe": 1,
+        "missed_unsafe": 0,
+        "impacted_actions": 1,
+        "impacted_sessions": 1,
+    }
+    assert client.get("/events").json() == []
+
+
+def test_curated_developer_trace_uses_the_current_draft(tmp_path: Path) -> None:
+    async def compiler(task: str) -> Policy:
+        return Policy(task=task, allowed_tools={"inspect"})
+
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=compiler))
+    client.post("/policy", json={"task": "inspect orders"})
+
+    response = client.post("/simulate/developer-trace")
+
+    assert response.status_code == 200
+    assert [item["verdict"]["decision"] for item in response.json()["results"]] == ["allow", "halt"]
+
+
+def test_approved_guardrail_becomes_a_global_forbidden_pattern(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=static_compiler))
+
+    created = client.post(
+        "/guardrails",
+        json={"name": "Block table drops", "pattern": "DROP TABLE", "reason": "Reviewed destructive-action incident."},
+    )
+    approved = client.post(f"/guardrails/{created.json()['id']}/approved")
+    policy = Policy(
+        task="migration",
+        allowed_tools={"db"},
+        allowed_db_ops={"DROP"},
+        allowed_db_tables={"users"},
+    )
+    simulated = client.post(
+        "/simulate",
+        json={
+            "policy": policy.model_dump(mode="json"),
+            "steps": [
+                {
+                    "id": "drop-users",
+                    "description": "Drop users table.",
+                    "expected_safe": False,
+                    "action": {"tool": "db", "args": {"sql": "DROP TABLE users"}},
+                    "context": {"session_id": "learning-1"},
+                }
+            ],
+        },
+    )
+
+    assert created.json()["status"] == "pending"
+    assert approved.status_code == 200
+    assert simulated.json()["results"][0]["verdict"]["matched_rule"] == "forbidden_pattern:DROP TABLE"
+
+
 def test_confirmed_safety_demo_emits_allowed_and_halted_verdicts(tmp_path: Path) -> None:
     async def compiler(task: str) -> Policy:
         return Policy(

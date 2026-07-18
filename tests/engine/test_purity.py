@@ -16,6 +16,7 @@ for module in (
     'interlock.engine.patterns',
     'interlock.engine.scope',
     'interlock.engine.enforcer',
+    'interlock.engine.simulator',
 ):
     importlib.import_module(module)
 

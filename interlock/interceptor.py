@@ -7,6 +7,7 @@ from interlock.engine.models import (
     DbAction,
     EnforcementContext,
     FsWriteAction,
+    GitHubAction,
     InspectAction,
     Policy,
     ProposedAction,
@@ -54,6 +55,14 @@ def _dispatch(action: ProposedAction, sandbox: Sandbox) -> dict[str, object]:
         return sandbox.fs_write(action.args.path, action.args.content)
     if isinstance(action, InspectAction):
         return sandbox.inspect(action.args.resource)
+    if isinstance(action, GitHubAction):
+        return sandbox.github(
+            action.args.operation,
+            action.args.repository,
+            action.args.branch,
+            action.args.issue_number,
+            action.args.pull_request_number,
+        )
     raise TypeError("unsupported typed action")
 
 

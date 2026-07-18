@@ -22,6 +22,22 @@ class Decision(str, Enum):
     ESCALATE = "escalate"
 
 
+class AssetCriticality(str, Enum):
+    """Business impact classification for the asset targeted by an action."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class Environment(str, Enum):
+    """Deployment boundary supplied by the trusted action transport."""
+
+    LOCAL = "local"
+    STAGING = "staging"
+    PRODUCTION = "production"
+
+
 class DbArgs(BaseModel):
     """Arguments for the intentionally constrained local SQLite capability."""
 
@@ -48,6 +64,22 @@ class InspectArgs(BaseModel):
     resource: Literal["sandbox_files", "ledger", "db_schema"]
 
 
+class GitHubArgs(BaseModel):
+    """Typed, provider-neutral subset of developer repository operations."""
+
+    operation: Literal[
+        "read_issue",
+        "read_pull_request",
+        "create_branch",
+        "open_pull_request",
+        "merge_pull_request",
+    ]
+    repository: str = Field(min_length=3)
+    branch: str | None = None
+    issue_number: int | None = Field(default=None, ge=1)
+    pull_request_number: int | None = Field(default=None, ge=1)
+
+
 class DbAction(BaseModel):
     tool: Literal["db"] = "db"
     args: DbArgs
@@ -68,7 +100,12 @@ class InspectAction(BaseModel):
     args: InspectArgs
 
 
-ProposedAction: TypeAlias = DbAction | TransferAction | FsWriteAction | InspectAction
+class GitHubAction(BaseModel):
+    tool: Literal["github"] = "github"
+    args: GitHubArgs
+
+
+ProposedAction: TypeAlias = DbAction | TransferAction | FsWriteAction | InspectAction | GitHubAction
 
 
 class Policy(BaseModel):
@@ -81,12 +118,27 @@ class Policy(BaseModel):
     allowed_db_tables: set[str] = Field(default_factory=set)
     spend_cap_cents: int = Field(default=0, ge=0)
     forbidden_patterns: list[str] = Field(default_factory=list)
+    allowed_agent_ids: set[str] = Field(default_factory=set)
+    allowed_human_principals: set[str] = Field(default_factory=set)
+    allowed_environments: set[Environment] = Field(default_factory=set)
+    allowed_asset_ids: set[str] = Field(default_factory=set)
+    allowed_github_operations: set[str] = Field(default_factory=set)
+    allowed_github_repositories: set[str] = Field(default_factory=set)
+    max_asset_criticality: AssetCriticality = AssetCriticality.HIGH
+    expires_at_epoch: int | None = Field(default=None, ge=0)
 
 
 class EnforcementContext(BaseModel):
     """Immutable run-state snapshot supplied to a deterministic decision."""
 
     spent_cents: int = Field(default=0, ge=0)
+    agent_id: str = Field(default="local-demo-agent", min_length=1)
+    human_principal: str = Field(default="local-demo-user", min_length=1)
+    environment: Environment = Environment.LOCAL
+    asset_id: str = Field(default="local-sandbox", min_length=1)
+    asset_criticality: AssetCriticality = AssetCriticality.LOW
+    session_id: str = Field(default="local-demo-session", min_length=1)
+    evaluated_at_epoch: int = Field(default=0, ge=0)
 
 
 class Verdict(BaseModel):

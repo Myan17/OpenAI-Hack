@@ -13,6 +13,7 @@ from interlock.engine.models import (
     DbAction,
     EnforcementContext,
     FsWriteAction,
+    GitHubAction,
     InspectAction,
     Policy,
     TransferAction,
@@ -41,6 +42,7 @@ def build_agent(context: AgentContext, model: str = "gpt-5.6") -> Agent[AgentCon
             _guarded_tool("transfer", TransferAction, context),
             _guarded_tool("fs_write", FsWriteAction, context),
             _guarded_tool("inspect", InspectAction, context),
+            _guarded_tool("github", GitHubAction, context),
         ],
     )
 
