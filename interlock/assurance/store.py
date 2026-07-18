@@ -4,10 +4,16 @@ import re
 import sqlite3
 from pathlib import Path
 
-from interlock.assurance.models import AssuranceCase
+from pydantic import TypeAdapter
+
+from interlock.assurance.models import AssuranceCase, ReplayCaseResult
+from interlock.assurance.replay import replay_case
+from interlock.engine.models import Policy
+from interlock.engine.simulator import SimulationStep
 
 
 _SECRET_LIKE_PATTERN = re.compile(r"(?:OPENAI_API_KEY\s*=|\bBearer\s+|\bsk-[A-Za-z0-9_-]{8,})", re.IGNORECASE)
+_STEPS_ADAPTER = TypeAdapter(list[SimulationStep])
 
 
 class AssuranceStore:
@@ -77,6 +83,49 @@ class AssuranceStore:
 
         return self._cases("")
 
+    def attach_replay_fixture(
+        self, case_id: int, *, policy: Policy, steps: list[SimulationStep]
+    ) -> None:
+        """Bind one approved case to an immutable, effect-free replay fixture."""
+
+        case = self.case(case_id)
+        if case.status != "active":
+            raise ValueError("only an active reviewer-approved case can receive a replay fixture")
+        with sqlite3.connect(self._db_path) as connection:
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO assurance_replay_fixtures (case_id, policy_json, steps_json)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        case_id,
+                        policy.model_dump_json(),
+                        _STEPS_ADAPTER.dump_json(steps).decode("utf-8"),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ValueError("case already has a replay fixture; retire and replace explicitly") from error
+
+    def replay_active_case(self, case_id: int) -> ReplayCaseResult:
+        """Run an approved fixture through the existing side-effect-free simulator."""
+
+        case = self.case(case_id)
+        if case.status != "active":
+            raise ValueError("only an active reviewer-approved case can be replayed")
+        with sqlite3.connect(self._db_path) as connection:
+            row = connection.execute(
+                "SELECT policy_json, steps_json FROM assurance_replay_fixtures WHERE case_id = ?",
+                (case_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError("active case has no replay fixture")
+        return replay_case(
+            case_id=case_id,
+            policy=Policy.model_validate_json(row[0]),
+            steps=_STEPS_ADAPTER.validate_json(row[1]),
+        )
+
     def _cases(self, where: str) -> list[AssuranceCase]:
         with sqlite3.connect(self._db_path) as connection:
             connection.row_factory = sqlite3.Row
@@ -101,6 +150,15 @@ class AssuranceStore:
                         status IN ('pending_review', 'active', 'rejected', 'expired', 'retired', 'revoked')
                     ),
                     reviewer TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS assurance_replay_fixtures (
+                    case_id INTEGER PRIMARY KEY REFERENCES assurance_cases(id),
+                    policy_json TEXT NOT NULL,
+                    steps_json TEXT NOT NULL
                 )
                 """
             )

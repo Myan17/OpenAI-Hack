@@ -118,3 +118,28 @@ def test_assurance_replay_uses_the_existing_effect_free_simulator(tmp_path: Path
     assert response.json()["passed"] is True
     assert response.json()["step_decisions"] == ["allow", "halt"]
     assert client.get("/events").json() == []
+
+
+def test_approved_candidate_can_receive_and_run_a_replay_fixture(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+    created = client.post(
+        "/assurance/candidates",
+        json={"title": "Preserve ledger read", "summary": "Ledger read stays allowed.", "source": "event:17", "owner": "qa@example.test"},
+    )
+    case_id = created.json()["case_id"]
+    client.post(f"/assurance/candidates/{case_id}/approved", json={"reviewer": "reviewer@example.test"})
+
+    attached = client.post(
+        f"/assurance/candidates/{case_id}/fixtures/attach",
+        json={
+            "policy": {"task": "inspect", "allowed_tools": ["inspect"]},
+            "steps": [{
+                "id": "read", "description": "Read ledger.", "expected_safe": True,
+                "action": {"tool": "inspect", "args": {"resource": "ledger"}}, "context": {},
+            }],
+        },
+    )
+    replayed = client.post(f"/assurance/candidates/{case_id}/fixtures/replay")
+
+    assert attached.status_code == 200
+    assert replayed.json()["passed"] is True

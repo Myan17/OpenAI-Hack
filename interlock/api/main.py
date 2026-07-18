@@ -99,6 +99,13 @@ class AssuranceReplayRequest(BaseModel):
     steps: list[SimulationStep]
 
 
+class AssuranceFixtureRequest(BaseModel):
+    """A typed, local-only fixture attached to an approved assurance case."""
+
+    policy: Policy
+    steps: list[SimulationStep]
+
+
 @dataclass
 class AppState:
     event_log: EventLog
@@ -205,6 +212,27 @@ def create_app(
         if case is None:
             raise HTTPException(status_code=409, detail="This assurance candidate is not pending.")
         return case
+
+    @app.post("/assurance/candidates/{case_id}/fixtures/attach")
+    def attach_assurance_fixture(case_id: int, request: AssuranceFixtureRequest) -> dict[str, object]:
+        """Attach one immutable local replay fixture to a reviewer-approved case."""
+
+        try:
+            state.assurance_store.attach_replay_fixture(
+                case_id, policy=request.policy, steps=request.steps
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {"case_id": case_id, "attached": True}
+
+    @app.post("/assurance/candidates/{case_id}/fixtures/replay", response_model=ReplayCaseResult)
+    def replay_assurance_fixture(case_id: int) -> ReplayCaseResult:
+        """Replay an approved fixture locally without dispatching any tool effect."""
+
+        try:
+            return state.assurance_store.replay_active_case(case_id)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/assurance/report", response_model=ReleaseEvidenceBundle)
     def assurance_report(request: AssuranceReportRequest) -> ReleaseEvidenceBundle:
