@@ -5,9 +5,16 @@ import json
 from pathlib import Path
 from typing import Sequence
 
+from pydantic import TypeAdapter
+
 from interlock.assurance.evidence import verify_evidence_bundle
 from interlock.assurance.models import ReleaseEvidenceBundle
 from interlock.assurance.store import AssuranceStore
+from interlock.engine.models import Policy
+from interlock.engine.simulator import SimulationStep
+
+
+_STEPS_ADAPTER = TypeAdapter(list[SimulationStep])
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -29,6 +36,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     review_parser.add_argument("--case-id", required=True, type=int)
     review_parser.add_argument("--resolution", required=True, choices=("approved", "rejected"))
     review_parser.add_argument("--reviewer", required=True)
+    attach_parser = subparsers.add_parser("fixture-attach", help="attach one local replay fixture to an active case")
+    attach_parser.add_argument("--db", required=True, type=Path)
+    attach_parser.add_argument("--case-id", required=True, type=int)
+    attach_parser.add_argument("--policy", required=True, type=Path)
+    attach_parser.add_argument("--steps", required=True, type=Path)
+    replay_parser = subparsers.add_parser("case-replay", help="replay one active local fixture")
+    replay_parser.add_argument("--db", required=True, type=Path)
+    replay_parser.add_argument("--case-id", required=True, type=int)
+    retire_parser = subparsers.add_parser("case-retire", help="retire one active assurance case")
+    retire_parser.add_argument("--db", required=True, type=Path)
+    retire_parser.add_argument("--case-id", required=True, type=int)
+    retire_parser.add_argument("--actor", required=True)
+    audit_parser = subparsers.add_parser("case-audit", help="export append-only lifecycle events")
+    audit_parser.add_argument("--db", required=True, type=Path)
+    audit_parser.add_argument("--case-id", required=True, type=int)
     args = parser.parse_args(argv)
     if args.command == "verify":
         return _verify(args.bundle)
@@ -36,6 +58,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _create_case(args)
     if args.command == "case-review":
         return _review_case(args)
+    if args.command == "fixture-attach":
+        return _attach_fixture(args)
+    if args.command == "case-replay":
+        return _replay_case(args)
+    if args.command == "case-retire":
+        return _retire_case(args)
+    if args.command == "case-audit":
+        return _audit_case(args)
     parser.error("unsupported command")
     return 2
 
@@ -85,6 +115,61 @@ def _review_case(args: argparse.Namespace) -> int:
         print(json.dumps({"reviewed": False, "error": "candidate is not pending"}))
         return 1
     print(case.model_dump_json())
+    return 0
+
+
+def _attach_fixture(args: argparse.Namespace) -> int:
+    """Validate fixture files before binding them to one active reviewer-approved case."""
+
+    try:
+        policy = Policy.model_validate_json(args.policy.read_text(encoding="utf-8"))
+        steps = _STEPS_ADAPTER.validate_json(args.steps.read_text(encoding="utf-8"))
+        AssuranceStore(args.db).attach_replay_fixture(args.case_id, policy=policy, steps=steps)
+    except (OSError, ValueError) as error:
+        print(json.dumps({"attached": False, "error": str(error)}))
+        return 2
+    print(json.dumps({"attached": True, "case_id": args.case_id}))
+    return 0
+
+
+def _replay_case(args: argparse.Namespace) -> int:
+    """Run an existing fixture through the deterministic local simulator only."""
+
+    try:
+        result = AssuranceStore(args.db).replay_active_case(args.case_id)
+    except ValueError as error:
+        print(json.dumps({"replayed": False, "error": str(error)}))
+        return 2
+    print(result.model_dump_json())
+    return 0 if result.passed else 1
+
+
+def _retire_case(args: argparse.Namespace) -> int:
+    """Retire an active case while retaining the append-only lifecycle history."""
+
+    try:
+        case = AssuranceStore(args.db).retire_case(args.case_id, actor=args.actor)
+    except ValueError as error:
+        print(json.dumps({"retired": False, "error": str(error)}))
+        return 2
+    if case is None:
+        print(json.dumps({"retired": False, "error": "candidate is not active"}))
+        return 1
+    print(case.model_dump_json())
+    return 0
+
+
+def _audit_case(args: argparse.Namespace) -> int:
+    """Print only structured local lifecycle evidence for a known assurance case."""
+
+    try:
+        store = AssuranceStore(args.db)
+        store.case(args.case_id)
+        events = store.audit_events(args.case_id)
+    except ValueError as error:
+        print(json.dumps({"audit": False, "error": str(error)}))
+        return 2
+    print(json.dumps(events, sort_keys=True))
     return 0
 
 
