@@ -11,6 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from interlock.assurance.delta import compare_authority
+from interlock.assurance.models import AssuranceCase, ChangeManifest
+from interlock.assurance.store import AssuranceStore
 from interlock.api.eventlog import EventLog
 from interlock.engine.enforcer import enforce
 from interlock.engine.models import DbAction, DbArgs, Decision, EnforcementContext, InspectAction, InspectArgs, Policy
@@ -56,12 +59,35 @@ class GuardrailRequest(BaseModel):
     reason: str
 
 
+class AssuranceDiffRequest(BaseModel):
+    """Two canonical release manifests for an advisory authority comparison."""
+
+    baseline: ChangeManifest
+    candidate: ChangeManifest
+
+
+class AssuranceCandidateRequest(BaseModel):
+    """Non-authoritative incident data that must be reviewed before replay use."""
+
+    title: str
+    summary: str
+    source: str
+    owner: str
+
+
+class AssuranceReviewRequest(BaseModel):
+    """Reviewer identity required to resolve a stored assurance candidate."""
+
+    reviewer: str
+
+
 @dataclass
 class AppState:
     event_log: EventLog
     sandbox_root: Path
     agent_runner: AgentRunner
     policy_compiler: PolicyCompiler
+    assurance_store: AssuranceStore
     policy: Policy | None = None
     confirmed: bool = False
 
@@ -86,6 +112,7 @@ def create_app(
         sandbox_root=event_log.db_path.parent / "sandbox",
         agent_runner=agent_runner or _run_local_agent,
         policy_compiler=policy_compiler or compile_policy_with_openai,
+        assurance_store=AssuranceStore(event_log.db_path),
     )
 
     @app.get("/health")
@@ -113,6 +140,53 @@ def create_app(
     @app.get("/runs")
     def runs() -> list[dict[str, object]]:
         return state.event_log.runs()
+
+    @app.post("/assurance/diff")
+    def assurance_diff(request: AssuranceDiffRequest) -> dict[str, object]:
+        """Compare typed authority in report-only mode without dispatching an effect."""
+
+        delta = compare_authority(request.baseline.authority, request.candidate.authority)
+        response = delta.model_dump(mode="json")
+        response["has_expansion"] = delta.has_expansion
+        return response
+
+    @app.get("/assurance/candidates", response_model=list[AssuranceCase])
+    def assurance_candidates(active_only: bool = False) -> list[AssuranceCase]:
+        """List non-authoritative candidates or reviewer-approved active cases."""
+
+        return state.assurance_store.active_cases() if active_only else state.assurance_store.all_cases()
+
+    @app.post("/assurance/candidates", response_model=AssuranceCase)
+    def create_assurance_candidate(request: AssuranceCandidateRequest) -> AssuranceCase:
+        """Capture a safe candidate; it cannot affect the runtime enforcement policy."""
+
+        try:
+            return state.assurance_store.create_candidate(
+                title=request.title,
+                summary=request.summary,
+                source=request.source,
+                owner=request.owner,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/assurance/candidates/{case_id}/{resolution}", response_model=AssuranceCase)
+    def review_assurance_candidate(
+        case_id: int, resolution: str, request: AssuranceReviewRequest
+    ) -> AssuranceCase:
+        """Resolve a candidate once, preserving a reviewer identity in SQLite."""
+
+        if resolution not in {"approved", "rejected"}:
+            raise HTTPException(status_code=422, detail="Resolution must be approved or rejected.")
+        try:
+            case = state.assurance_store.review_candidate(
+                case_id, resolution, reviewer=request.reviewer
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if case is None:
+            raise HTTPException(status_code=409, detail="This assurance candidate is not pending.")
+        return case
 
     @app.post("/simulate", response_model=SimulationResult)
     def simulate_policy(request: SimulationRequest) -> SimulationResult:

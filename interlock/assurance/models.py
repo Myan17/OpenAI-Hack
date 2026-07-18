@@ -195,3 +195,40 @@ class AssuranceCase(BaseModel):
     owner: str = Field(min_length=1)
     status: Literal["pending_review", "active", "rejected", "expired", "retired", "revoked"]
     reviewer: str | None = None
+
+
+class ReplayCaseResult(BaseModel):
+    """Stable summary of one effect-free regression replay."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: int = Field(ge=1)
+    passed: bool
+    allowed_safe: int = Field(default=0, ge=0)
+    blocked_safe: int = Field(default=0, ge=0)
+    stopped_unsafe: int = Field(default=0, ge=0)
+    missed_unsafe: int = Field(default=0, ge=0)
+    step_decisions: tuple[str, ...] = ()
+
+
+class ReleaseEvidenceBundle(BaseModel):
+    """Portable report-only evidence for one proposed developer-agent release."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    baseline: ChangeManifest
+    candidate: ChangeManifest
+    delta: AuthorityDelta
+    replays: tuple[ReplayCaseResult, ...] = ()
+    verdict: Literal["pass", "fail", "inconclusive"]
+    digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    def canonical_json_without_digest(self) -> str:
+        """Serialize immutable evidence fields for independent digest verification."""
+
+        return json.dumps(
+            self.model_dump(mode="json", exclude={"digest"}),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
