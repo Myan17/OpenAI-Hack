@@ -75,6 +75,7 @@ class AssuranceCandidateRequest(BaseModel):
     summary: str
     source: str
     owner: str
+    expires_at_epoch: int | None = None
 
 
 class AssuranceReviewRequest(BaseModel):
@@ -104,6 +105,12 @@ class AssuranceFixtureRequest(BaseModel):
 
     policy: Policy
     steps: list[SimulationStep]
+
+
+class AssuranceExpirationRequest(BaseModel):
+    """Caller-supplied time keeps assurance-case expiry testable and explicit."""
+
+    now_epoch: int
 
 
 @dataclass
@@ -181,6 +188,12 @@ def create_app(
 
         return state.assurance_store.active_cases() if active_only else state.assurance_store.all_cases()
 
+    @app.post("/assurance/candidates/expire")
+    def expire_assurance_candidates(request: AssuranceExpirationRequest) -> dict[str, int]:
+        """Expire active cases against an explicit caller-supplied cutoff."""
+
+        return {"expired_count": state.assurance_store.expire_cases(request.now_epoch)}
+
     @app.post("/assurance/candidates", response_model=AssuranceCase)
     def create_assurance_candidate(request: AssuranceCandidateRequest) -> AssuranceCase:
         """Capture a safe candidate; it cannot affect the runtime enforcement policy."""
@@ -191,6 +204,7 @@ def create_app(
                 summary=request.summary,
                 source=request.source,
                 owner=request.owner,
+                expires_at_epoch=request.expires_at_epoch,
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -212,6 +226,12 @@ def create_app(
         if case is None:
             raise HTTPException(status_code=409, detail="This assurance candidate is not pending.")
         return case
+
+    @app.get("/assurance/candidates/{case_id}/history/audit")
+    def assurance_case_audit(case_id: int) -> list[dict[str, object]]:
+        """Return append-only lifecycle evidence without exposing a mutation path."""
+
+        return state.assurance_store.audit_events(case_id)
 
     @app.post("/assurance/candidates/{case_id}/fixtures/attach")
     def attach_assurance_fixture(case_id: int, request: AssuranceFixtureRequest) -> dict[str, object]:

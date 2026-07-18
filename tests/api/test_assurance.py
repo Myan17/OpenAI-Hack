@@ -143,3 +143,22 @@ def test_approved_candidate_can_receive_and_run_a_replay_fixture(tmp_path: Path)
 
     assert attached.status_code == 200
     assert replayed.json()["passed"] is True
+
+
+def test_assurance_lifecycle_api_expires_retires_and_aggregates_trials(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+    created = client.post(
+        "/assurance/candidates",
+        json={
+            "title": "Lifecycle case", "summary": "A safe fixture has bounded lifetime.",
+            "source": "event:21", "owner": "qa@example.test", "expires_at_epoch": 10,
+        },
+    )
+    case_id = created.json()["case_id"]
+    client.post(f"/assurance/candidates/{case_id}/approved", json={"reviewer": "reviewer@example.test"})
+
+    expired = client.post("/assurance/candidates/expire", json={"now_epoch": 11})
+    audit = client.get(f"/assurance/candidates/{case_id}/history/audit")
+
+    assert expired.json() == {"expired_count": 1}
+    assert audit.json()[-1]["action"] == "expired"
