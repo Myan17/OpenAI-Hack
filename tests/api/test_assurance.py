@@ -54,3 +54,34 @@ def test_assurance_candidate_requires_review_before_it_is_active(tmp_path: Path)
     assert active_before.json() == []
     assert reviewed.json()["status"] == "active"
     assert [case["case_id"] for case in active_after.json()] == [created.json()["case_id"]]
+
+
+def test_assurance_report_and_verify_are_report_only_and_tamper_evident(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+    report = client.post(
+        "/assurance/report",
+        json={
+            "baseline": _manifest("baseline", ["inspect"]),
+            "candidate": _manifest("candidate", ["inspect"]),
+            "replays": [
+                {
+                    "case_id": 1,
+                    "passed": True,
+                    "allowed_safe": 1,
+                    "blocked_safe": 0,
+                    "stopped_unsafe": 1,
+                    "missed_unsafe": 0,
+                    "step_decisions": ["allow", "halt"],
+                }
+            ],
+        },
+    )
+
+    verified = client.post("/assurance/verify", json=report.json())
+    tampered = {**report.json(), "verdict": "fail"}
+    rejected = client.post("/assurance/verify", json=tampered)
+
+    assert report.status_code == 200
+    assert report.json()["verdict"] == "pass"
+    assert verified.json() == {"valid": True}
+    assert rejected.json() == {"valid": False}

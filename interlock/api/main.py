@@ -12,7 +12,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from interlock.assurance.delta import compare_authority
-from interlock.assurance.models import AssuranceCase, ChangeManifest
+from interlock.assurance.evidence import build_evidence_bundle, verify_evidence_bundle
+from interlock.assurance.models import AssuranceCase, ChangeManifest, ReleaseEvidenceBundle, ReplayCaseResult
 from interlock.assurance.store import AssuranceStore
 from interlock.api.eventlog import EventLog
 from interlock.engine.enforcer import enforce
@@ -79,6 +80,14 @@ class AssuranceReviewRequest(BaseModel):
     """Reviewer identity required to resolve a stored assurance candidate."""
 
     reviewer: str
+
+
+class AssuranceReportRequest(BaseModel):
+    """Inputs required to assemble an advisory, locally verifiable release report."""
+
+    baseline: ChangeManifest
+    candidate: ChangeManifest
+    replays: list[ReplayCaseResult]
 
 
 @dataclass
@@ -187,6 +196,24 @@ def create_app(
         if case is None:
             raise HTTPException(status_code=409, detail="This assurance candidate is not pending.")
         return case
+
+    @app.post("/assurance/report", response_model=ReleaseEvidenceBundle)
+    def assurance_report(request: AssuranceReportRequest) -> ReleaseEvidenceBundle:
+        """Assemble a report-only release verdict; this endpoint cannot dispatch a tool."""
+
+        delta = compare_authority(request.baseline.authority, request.candidate.authority)
+        return build_evidence_bundle(
+            baseline=request.baseline,
+            candidate=request.candidate,
+            delta=delta,
+            replays=request.replays,
+        )
+
+    @app.post("/assurance/verify")
+    def verify_assurance_report(bundle: ReleaseEvidenceBundle) -> dict[str, bool]:
+        """Verify evidence locally without consulting mutable server state."""
+
+        return {"valid": verify_evidence_bundle(bundle)}
 
     @app.post("/simulate", response_model=SimulationResult)
     def simulate_policy(request: SimulationRequest) -> SimulationResult:
