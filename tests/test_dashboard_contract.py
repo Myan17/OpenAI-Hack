@@ -12,5 +12,8 @@ def test_dashboard_keeps_core_demo_and_assurance_controls() -> None:
         "Run safety demo",
         "Assurance memory",
         "Attach &amp; replay fixture",
+        "Release evidence",
+        "Generate local evidence report",
+        "Verify evidence bundle",
     ):
         assert control in source
