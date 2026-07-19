@@ -238,7 +238,7 @@ def create_app(
 
         require_assurance()
         try:
-            return state.assurance_store.create_candidate(
+            case = state.assurance_store.create_candidate(
                 title=request.title,
                 summary=request.summary,
                 source=request.source,
@@ -247,6 +247,8 @@ def create_app(
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        state.assurance_metrics.record("candidate:created")
+        return case
 
     @app.post("/assurance/candidates/{case_id}/retire", response_model=AssuranceCase)
     def retire_assurance_candidate(case_id: int, request: AssuranceRetireRequest) -> AssuranceCase:
@@ -259,6 +261,7 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(error)) from error
         if case is None:
             raise HTTPException(status_code=409, detail="This assurance candidate is not active.")
+        state.assurance_metrics.record("candidate:retired")
         return case
 
     @app.post("/assurance/candidates/{case_id}/{resolution}", response_model=AssuranceCase)
@@ -278,6 +281,7 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(error)) from error
         if case is None:
             raise HTTPException(status_code=409, detail="This assurance candidate is not pending.")
+        state.assurance_metrics.record(f"candidate:{resolution}")
         return case
 
     @app.get("/assurance/candidates/{case_id}/history/audit")
@@ -316,12 +320,14 @@ def create_app(
 
         require_assurance()
         delta = compare_authority(request.baseline.authority, request.candidate.authority)
-        return build_evidence_bundle(
+        bundle = build_evidence_bundle(
             baseline=request.baseline,
             candidate=request.candidate,
             delta=delta,
             replays=request.replays,
         )
+        state.assurance_metrics.record(f"report:{bundle.verdict}")
+        return bundle
 
     @app.post("/assurance/replay", response_model=ReplayCaseResult)
     def assurance_replay(request: AssuranceReplayRequest) -> ReplayCaseResult:
@@ -335,7 +341,9 @@ def create_app(
         """Verify evidence locally without consulting mutable server state."""
 
         require_assurance()
-        return {"valid": verify_evidence_bundle(bundle)}
+        valid = verify_evidence_bundle(bundle)
+        state.assurance_metrics.record("report:verified" if valid else "report:invalid")
+        return {"valid": valid}
 
     @app.post("/assurance/check", response_model=AdvisoryCheck)
     def assurance_check(bundle: ReleaseEvidenceBundle) -> AdvisoryCheck:
