@@ -107,3 +107,14 @@ def test_cli_completes_the_local_candidate_fixture_replay_and_retirement_flow(
     assert [event["action"] for event in json.loads(capsys.readouterr().out)] == [
         "created", "approved", "retired"
     ]
+
+
+def test_cli_exports_an_empty_snapshot_and_imports_it_into_an_empty_store(tmp_path: Path, capsys) -> None:
+    source = tmp_path / "source.sqlite"
+    snapshot = tmp_path / "snapshot.json"
+    restored = tmp_path / "restored.sqlite"
+
+    assert main(["snapshot-export", "--db", str(source), "--output", str(snapshot)]) == 0
+    assert json.loads(capsys.readouterr().out)["exported"] is True
+    assert main(["snapshot-import", "--db", str(restored), "--input", str(snapshot)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"imported_cases": 0}

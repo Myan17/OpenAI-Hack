@@ -51,6 +51,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     audit_parser = subparsers.add_parser("case-audit", help="export append-only lifecycle events")
     audit_parser.add_argument("--db", required=True, type=Path)
     audit_parser.add_argument("--case-id", required=True, type=int)
+    export_parser = subparsers.add_parser("snapshot-export", help="export a deterministic local recovery snapshot")
+    export_parser.add_argument("--db", required=True, type=Path)
+    export_parser.add_argument("--output", required=True, type=Path)
+    import_parser = subparsers.add_parser("snapshot-import", help="restore a snapshot into an empty local store")
+    import_parser.add_argument("--db", required=True, type=Path)
+    import_parser.add_argument("--input", required=True, type=Path)
     args = parser.parse_args(argv)
     if args.command == "verify":
         return _verify(args.bundle)
@@ -66,6 +72,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _retire_case(args)
     if args.command == "case-audit":
         return _audit_case(args)
+    if args.command == "snapshot-export":
+        return _export_snapshot(args)
+    if args.command == "snapshot-import":
+        return _import_snapshot(args)
     parser.error("unsupported command")
     return 2
 
@@ -170,6 +180,34 @@ def _audit_case(args: argparse.Namespace) -> int:
         print(json.dumps({"audit": False, "error": str(error)}))
         return 2
     print(json.dumps(events, sort_keys=True))
+    return 0
+
+
+def _export_snapshot(args: argparse.Namespace) -> int:
+    """Write a deterministic, local-only recovery snapshot."""
+
+    try:
+        snapshot = AssuranceStore(args.db).export_snapshot()
+        args.output.write_text(json.dumps(snapshot, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+    except (OSError, ValueError) as error:
+        print(json.dumps({"exported": False, "error": str(error)}))
+        return 2
+    print(json.dumps({"exported": True, "output": str(args.output)}))
+    return 0
+
+
+def _import_snapshot(args: argparse.Namespace) -> int:
+    """Restore validated evidence only when the target store is empty."""
+
+    try:
+        snapshot = json.loads(args.input.read_text(encoding="utf-8"))
+        if not isinstance(snapshot, dict):
+            raise ValueError("assurance snapshot must be an object")
+        count = AssuranceStore(args.db).import_snapshot(snapshot)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(json.dumps({"imported": False, "error": str(error)}))
+        return 2
+    print(json.dumps({"imported_cases": count}))
     return 0
 
 
