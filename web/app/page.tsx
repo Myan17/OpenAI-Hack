@@ -247,6 +247,20 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
+  async function retireAssuranceCandidate(caseId: number) {
+    setBusy(true);
+    try {
+      const candidate = await requestJson<AssuranceCandidate>(`/assurance/candidates/${caseId}/retire`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actor: "local-demo-reviewer" }),
+      });
+      setAssuranceCandidates((current) => current.map((item) => item.case_id === caseId ? candidate : item));
+      setStatus("Assurance case retired. Its audit history remains preserved, but it is excluded from future replay suites.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not retire the assurance case.");
+    } finally { setBusy(false); }
+  }
+
   async function generateEvidenceReport() {
     setBusy(true);
     try {
@@ -357,7 +371,7 @@ export default function Page() {
       {assuranceCandidates.length === 0 ? <p>No assurance candidates captured yet.</p> : assuranceCandidates.map((candidate) => <article key={candidate.case_id} className={candidate.status === "active" ? "allow" : candidate.status === "rejected" ? "halt" : "escalate"}>
         <b>{candidate.status.replace("_", " ").toUpperCase()}</b> · {candidate.title}<small>{candidate.summary} · {candidate.source}</small>
         {candidate.status === "pending_review" && <span className="approval-actions"><button onClick={() => resolveAssuranceCandidate(candidate.case_id, "approved")} disabled={busy}>Approve for replay</button><button className="reject" onClick={() => resolveAssuranceCandidate(candidate.case_id, "rejected")} disabled={busy}>Reject</button></span>}
-        {candidate.status === "active" && <span className="approval-actions"><button onClick={() => attachAndReplayAssuranceFixture(candidate.case_id)} disabled={busy}>Attach &amp; replay fixture</button></span>}
+        {candidate.status === "active" && <span className="approval-actions"><button onClick={() => attachAndReplayAssuranceFixture(candidate.case_id)} disabled={busy}>Attach &amp; replay fixture</button><button className="reject" onClick={() => retireAssuranceCandidate(candidate.case_id)} disabled={busy}>Retire case</button></span>}
       </article>)}
     </section>
     <section className="panel"><h2>Release evidence</h2>

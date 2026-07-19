@@ -86,6 +86,12 @@ class AssuranceReviewRequest(BaseModel):
     reviewer: str
 
 
+class AssuranceRetireRequest(BaseModel):
+    """Actor identity required to retire an active assurance case without deletion."""
+
+    actor: str
+
+
 class AssuranceReportRequest(BaseModel):
     """Inputs required to assemble an advisory, locally verifiable release report."""
 
@@ -241,6 +247,19 @@ def create_app(
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/assurance/candidates/{case_id}/retire", response_model=AssuranceCase)
+    def retire_assurance_candidate(case_id: int, request: AssuranceRetireRequest) -> AssuranceCase:
+        """Retire an active case explicitly while preserving its immutable audit history."""
+
+        require_assurance()
+        try:
+            case = state.assurance_store.retire_case(case_id, actor=request.actor)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if case is None:
+            raise HTTPException(status_code=409, detail="This assurance candidate is not active.")
+        return case
 
     @app.post("/assurance/candidates/{case_id}/{resolution}", response_model=AssuranceCase)
     def review_assurance_candidate(

@@ -164,6 +164,27 @@ def test_assurance_lifecycle_api_expires_retires_and_aggregates_trials(tmp_path:
     assert audit.json()[-1]["action"] == "expired"
 
 
+def test_assurance_lifecycle_api_retires_only_active_cases_with_an_audit_record(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+    created = client.post(
+        "/assurance/candidates",
+        json={"title": "Retirable case", "summary": "Retirement remains audited.", "source": "event:22", "owner": "qa"},
+    )
+    case_id = created.json()["case_id"]
+    client.post(f"/assurance/candidates/{case_id}/approved", json={"reviewer": "reviewer"})
+
+    retired = client.post(f"/assurance/candidates/{case_id}/retire", json={"actor": "qa"})
+    active = client.get("/assurance/candidates?active_only=true")
+    audit = client.get(f"/assurance/candidates/{case_id}/history/audit")
+    repeat = client.post(f"/assurance/candidates/{case_id}/retire", json={"actor": "qa"})
+
+    assert retired.status_code == 200
+    assert retired.json()["status"] == "retired"
+    assert active.json() == []
+    assert audit.json()[-1]["action"] == "retired"
+    assert repeat.status_code == 409
+
+
 def test_assurance_check_returns_local_advisory_payload(tmp_path: Path) -> None:
     client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
     report = client.post(

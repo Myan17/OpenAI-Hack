@@ -15,5 +15,6 @@ def test_dashboard_keeps_core_demo_and_assurance_controls() -> None:
         "Release evidence",
         "Generate local evidence report",
         "Verify evidence bundle",
+        "Retire case",
     ):
         assert control in source
