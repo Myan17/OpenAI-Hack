@@ -142,6 +142,72 @@ class AssuranceStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def export_snapshot(self) -> dict[str, object]:
+        """Return a deterministic local recovery snapshot without runtime-policy data."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            connection.row_factory = sqlite3.Row
+            fixture_rows = connection.execute(
+                "SELECT case_id, policy_json, steps_json FROM assurance_replay_fixtures ORDER BY case_id"
+            ).fetchall()
+            audit_rows = connection.execute(
+                "SELECT id, case_id, action, actor FROM assurance_case_audit ORDER BY id"
+            ).fetchall()
+        return {
+            "schema_version": 1,
+            "cases": [case.model_dump(mode="json") for case in self.all_cases()],
+            "fixtures": [dict(row) for row in fixture_rows],
+            "audit_events": [dict(row) for row in audit_rows],
+        }
+
+    def import_snapshot(self, snapshot: dict[str, object]) -> int:
+        """Restore a validated snapshot only into an empty store; never overwrite evidence."""
+
+        if snapshot.get("schema_version") != 1:
+            raise ValueError("unsupported assurance snapshot schema")
+        cases_value = snapshot.get("cases")
+        fixtures_value = snapshot.get("fixtures")
+        audits_value = snapshot.get("audit_events")
+        if not isinstance(cases_value, list) or not isinstance(fixtures_value, list) or not isinstance(audits_value, list):
+            raise ValueError("assurance snapshot must contain case, fixture, and audit lists")
+        try:
+            cases = TypeAdapter(list[AssuranceCase]).validate_python(cases_value)
+        except ValueError as error:
+            raise ValueError("assurance snapshot cases are invalid") from error
+        case_ids = {case.case_id for case in cases}
+        if len(case_ids) != len(cases) or any(_SENSITIVE_PATTERN.search(case.summary) for case in cases):
+            raise ValueError("assurance snapshot cases are invalid")
+        fixtures = [_validated_fixture(item, case_ids) for item in fixtures_value]
+        audits = [_validated_audit(item, case_ids) for item in audits_value]
+
+        with sqlite3.connect(self._db_path) as connection:
+            existing = int(connection.execute("SELECT COUNT(*) FROM assurance_cases").fetchone()[0])
+            if existing:
+                raise ValueError("assurance snapshot import requires an empty store")
+            for case in cases:
+                connection.execute(
+                    """
+                    INSERT INTO assurance_cases
+                    (id, title, summary, source, owner, status, reviewer, expires_at_epoch)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        case.case_id, case.title, case.summary, case.source, case.owner,
+                        case.status, case.reviewer, case.expires_at_epoch,
+                    ),
+                )
+            for case_id, policy_json, steps_json in fixtures:
+                connection.execute(
+                    "INSERT INTO assurance_replay_fixtures (case_id, policy_json, steps_json) VALUES (?, ?, ?)",
+                    (case_id, policy_json, steps_json),
+                )
+            for event_id, case_id, action, actor in audits:
+                connection.execute(
+                    "INSERT INTO assurance_case_audit (id, case_id, action, actor) VALUES (?, ?, ?, ?)",
+                    (event_id, case_id, action, actor),
+                )
+        return len(cases)
+
     def attach_replay_fixture(
         self, case_id: int, *, policy: Policy, steps: list[SimulationStep]
     ) -> None:
@@ -259,3 +325,37 @@ def _case_from_row(row: sqlite3.Row) -> AssuranceCase:
         reviewer=str(row["reviewer"]) if row["reviewer"] is not None else None,
         expires_at_epoch=int(row["expires_at_epoch"]) if row["expires_at_epoch"] is not None else None,
     )
+
+
+def _validated_fixture(item: object, case_ids: set[int]) -> tuple[int, str, str]:
+    """Validate a portable fixture before any recovery write is attempted."""
+
+    if not isinstance(item, dict):
+        raise ValueError("assurance snapshot fixture is invalid")
+    case_id = item.get("case_id")
+    policy_json = item.get("policy_json")
+    steps_json = item.get("steps_json")
+    if not isinstance(case_id, int) or case_id not in case_ids or not isinstance(policy_json, str) or not isinstance(steps_json, str):
+        raise ValueError("assurance snapshot fixture is invalid")
+    try:
+        Policy.model_validate_json(policy_json)
+        _STEPS_ADAPTER.validate_json(steps_json)
+    except ValueError as error:
+        raise ValueError("assurance snapshot fixture is invalid") from error
+    return case_id, policy_json, steps_json
+
+
+def _validated_audit(item: object, case_ids: set[int]) -> tuple[int, int, str, str]:
+    """Validate immutable lifecycle evidence and its case reference before recovery."""
+
+    if not isinstance(item, dict):
+        raise ValueError("assurance snapshot audit event is invalid")
+    event_id = item.get("id")
+    case_id = item.get("case_id")
+    action = item.get("action")
+    actor = item.get("actor")
+    if not isinstance(event_id, int) or event_id < 1 or not isinstance(case_id, int) or case_id not in case_ids:
+        raise ValueError("assurance snapshot audit event is invalid")
+    if not isinstance(action, str) or not action or not isinstance(actor, str) or not actor:
+        raise ValueError("assurance snapshot audit event is invalid")
+    return event_id, case_id, action, actor
