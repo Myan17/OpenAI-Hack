@@ -40,6 +40,7 @@ type ReleaseEvidence = {
   delta: AuthorityDelta; replays: Array<{ case_id: number; passed: boolean }>;
   verdict: "pass" | "fail" | "inconclusive"; digest: string;
 };
+type FixtureAdapterResult = { evidence: ReleaseEvidence; callback: { verdict: string; action: string; reason_codes: string[]; evidence_digest: string } };
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -59,6 +60,7 @@ export default function Page() {
   const [assuranceCandidates, setAssuranceCandidates] = useState<AssuranceCandidate[]>([]);
   const [evidence, setEvidence] = useState<ReleaseEvidence | null>(null);
   const [evidenceVerified, setEvidenceVerified] = useState<boolean | null>(null);
+  const [fixtureAdapter, setFixtureAdapter] = useState<FixtureAdapterResult | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [status, setStatus] = useState("Draft a least-privilege policy to begin.");
   const [busy, setBusy] = useState(false);
@@ -317,6 +319,23 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
+  async function previewFixtureCallback() {
+    setBusy(true);
+    try {
+      const result = await requestJson<FixtureAdapterResult>("/assurance/multica/fixture-evaluate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          envelope: { correlation_id: "dashboard-fixture", source_system: "multica-fixture", task_id: "local-task", run_id: "local-run", change_class: "skill_admission", components: { skill: "c".repeat(64) }, authority: {} },
+          baseline: { release_id: "dashboard-baseline", source: "dashboard:fixture", components: { skill: "b".repeat(64) }, authority: {} },
+          replays: [{ case_id: 1, passed: true }],
+        }),
+      });
+      setFixtureAdapter(result);
+      setStatus("Fixture adapter preview completed locally. No external task or agent was contacted.");
+    } catch (error) { setStatus(error instanceof Error ? error.message : "Could not preview the fixture callback."); }
+    finally { setBusy(false); }
+  }
+
   async function resolveEscalation(eventId: number, resolution: "approved" | "rejected") {
     setBusy(true);
     try {
@@ -380,6 +399,13 @@ export default function Page() {
       {!evidence ? <p>No local evidence report generated yet.</p> : <article className={evidence.verdict === "pass" ? "allow" : evidence.verdict === "fail" ? "halt" : "escalate"}>
         <b>{evidence.verdict.toUpperCase()}</b> · {evidence.baseline.release_id} → {evidence.candidate.release_id}<small>Authority expansion: {evidence.delta.has_expansion ? "detected" : "none"} · replay cases: {evidence.replays.length} · digest: <code>{evidence.digest}</code></small>
         {evidenceVerified !== null && <small>{evidenceVerified ? "VERIFIED locally" : "VERIFICATION FAILED"}</small>}
+      </article>}
+    </section>
+    <section className="panel"><h2>Fixture adapter preview</h2>
+      <p>Preview the local advisory callback that a future orchestration timeline could display. This uses only seeded fixture data.</p>
+      <button onClick={previewFixtureCallback} disabled={busy}>Preview fixture callback</button>
+      {!fixtureAdapter ? <p>No fixture callback previewed yet.</p> : <article className={fixtureAdapter.callback.verdict === "pass" ? "allow" : fixtureAdapter.callback.verdict === "fail" ? "halt" : "escalate"}>
+        <b>{fixtureAdapter.callback.action.toUpperCase()}</b> · {fixtureAdapter.callback.verdict.toUpperCase()}<small>Reasons: {fixtureAdapter.callback.reason_codes.join(", ")} · evidence: <code>{fixtureAdapter.callback.evidence_digest}</code></small>
       </article>}
     </section>
     <section className="panel"><h2>Live verdicts</h2>

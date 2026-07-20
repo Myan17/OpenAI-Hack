@@ -16,5 +16,7 @@ def test_dashboard_keeps_core_demo_and_assurance_controls() -> None:
         "Generate local evidence report",
         "Verify evidence bundle",
         "Retire case",
+        "Fixture adapter preview",
+        "Preview fixture callback",
     ):
         assert control in source
