@@ -3,7 +3,7 @@
 from interlock.assurance.evidence import build_evidence_bundle
 from interlock.assurance.delta import compare_authority
 from interlock.assurance.models import AuthoritySurface, ProposedChangeEnvelope, ReplayCaseResult
-from interlock.assurance.multica_adapter import fixture_envelope_to_manifest, fixture_callback
+from interlock.assurance.multica_adapter import fixture_envelope_to_manifest, fixture_callback, evaluate_fixture_change
 
 
 def test_fixture_adapter_preserves_authority_and_binds_stable_local_provenance() -> None:
@@ -38,3 +38,18 @@ def test_fixture_callback_quarantines_incomplete_evidence_and_allows_verified_pa
     assert callback.verdict == "pass"
     assert callback.action == "continue_advisory"
     assert callback.replay_case_ids == (3,)
+
+
+def test_fixture_change_with_authority_expansion_requires_reviewer() -> None:
+    envelope = ProposedChangeEnvelope(
+        correlation_id="corr-9", source_system="multica-fixture", task_id="task-9", run_id="run-9",
+        change_class="skill_admission", components={"skill": "c" * 64},
+        authority=AuthoritySurface(tools=["inspect", "db"]),
+    )
+    baseline = fixture_envelope_to_manifest(envelope.model_copy(update={"authority": AuthoritySurface(tools=["inspect"])}))
+
+    bundle, callback = evaluate_fixture_change(envelope, baseline, [ReplayCaseResult(case_id=4, passed=True)])
+
+    assert bundle.delta.has_expansion is True
+    assert callback.verdict == "fail"
+    assert callback.action == "reviewer_required"

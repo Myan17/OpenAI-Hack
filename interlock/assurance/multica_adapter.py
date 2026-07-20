@@ -1,7 +1,9 @@
 """Pure fixture adapter boundary for a future Multica integration."""
 
 from interlock.assurance.evidence import verify_evidence_bundle
-from interlock.assurance.models import AdvisoryCallback, ChangeManifest, ProposedChangeEnvelope, ReleaseEvidenceBundle
+from interlock.assurance.delta import compare_authority
+from interlock.assurance.evidence import build_evidence_bundle
+from interlock.assurance.models import AdvisoryCallback, ChangeManifest, ProposedChangeEnvelope, ReleaseEvidenceBundle, ReplayCaseResult
 
 
 def fixture_envelope_to_manifest(envelope: ProposedChangeEnvelope) -> ChangeManifest:
@@ -43,3 +45,20 @@ def fixture_callback(envelope: ProposedChangeEnvelope, bundle: ReleaseEvidenceBu
         evidence_digest=bundle.digest,
         replay_case_ids=tuple(replay.case_id for replay in bundle.replays),
     )
+
+
+def evaluate_fixture_change(
+    envelope: ProposedChangeEnvelope,
+    baseline: ChangeManifest,
+    replays: list[ReplayCaseResult],
+) -> tuple[ReleaseEvidenceBundle, AdvisoryCallback]:
+    """Compose local-only delta, replay evidence, and an advisory action without dispatching work."""
+
+    candidate = fixture_envelope_to_manifest(envelope)
+    bundle = build_evidence_bundle(
+        baseline=baseline,
+        candidate=candidate,
+        delta=compare_authority(baseline.authority, candidate.authority),
+        replays=replays,
+    )
+    return bundle, fixture_callback(envelope, bundle)
