@@ -201,3 +201,18 @@ def test_assurance_check_returns_local_advisory_payload(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["conclusion"] == "success"
     assert response.json()["advisory"] is True
+
+
+def test_fixture_multica_evaluation_is_local_and_returns_evidence_and_callback(tmp_path: Path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+    response = client.post(
+        "/assurance/multica/fixture-evaluate",
+        json={
+            "envelope": {"correlation_id": "corr-api", "source_system": "multica-fixture", "task_id": "task", "run_id": "run", "change_class": "code_change", "components": {"repo": "a" * 64}, "authority": {}},
+            "baseline": _manifest("baseline", []), "replays": [{"case_id": 1, "passed": True}],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["callback"]["action"] == "continue_advisory"
+    assert response.json()["evidence"]["verdict"] == "pass"

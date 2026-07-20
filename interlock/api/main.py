@@ -15,7 +15,8 @@ from interlock.assurance.delta import compare_authority
 from interlock.assurance.check import AdvisoryCheck, build_advisory_check
 from interlock.assurance.evidence import build_evidence_bundle, verify_evidence_bundle
 from interlock.assurance.metrics import AssuranceMetrics, AssuranceMetricsSnapshot
-from interlock.assurance.models import AssuranceCase, ChangeManifest, ReleaseEvidenceBundle, ReplayCaseResult
+from interlock.assurance.models import AdvisoryCallback, AssuranceCase, ChangeManifest, ProposedChangeEnvelope, ReleaseEvidenceBundle, ReplayCaseResult
+from interlock.assurance.multica_adapter import evaluate_fixture_change
 from interlock.assurance.replay import replay_case
 from interlock.assurance.store import AssuranceStore
 from interlock.api.eventlog import EventLog
@@ -97,6 +98,14 @@ class AssuranceReportRequest(BaseModel):
 
     baseline: ChangeManifest
     candidate: ChangeManifest
+    replays: list[ReplayCaseResult]
+
+
+class FixtureMulticaEvaluationRequest(BaseModel):
+    """Local fixture-only adapter inputs; this model deliberately has no provider credentials."""
+
+    envelope: ProposedChangeEnvelope
+    baseline: ChangeManifest
     replays: list[ReplayCaseResult]
 
 
@@ -328,6 +337,15 @@ def create_app(
         )
         state.assurance_metrics.record(f"report:{bundle.verdict}")
         return bundle
+
+    @app.post("/assurance/multica/fixture-evaluate")
+    def evaluate_multica_fixture(request: FixtureMulticaEvaluationRequest) -> dict[str, object]:
+        """Evaluate a local Multica-shaped fixture without performing any provider operation."""
+
+        require_assurance()
+        evidence, callback = evaluate_fixture_change(request.envelope, request.baseline, request.replays)
+        state.assurance_metrics.record(f"report:{evidence.verdict}")
+        return {"evidence": evidence.model_dump(mode="json"), "callback": callback.model_dump(mode="json")}
 
     @app.post("/assurance/replay", response_model=ReplayCaseResult)
     def assurance_replay(request: AssuranceReplayRequest) -> ReplayCaseResult:
