@@ -345,6 +345,7 @@ def create_app(
         require_assurance()
         evidence, callback = evaluate_fixture_change(request.envelope, request.baseline, request.replays)
         state.assurance_metrics.record(f"report:{evidence.verdict}")
+        state.assurance_metrics.record(f"adapter:{callback.action}")
         return {"evidence": evidence.model_dump(mode="json"), "callback": callback.model_dump(mode="json")}
 
     @app.post("/assurance/replay", response_model=ReplayCaseResult)

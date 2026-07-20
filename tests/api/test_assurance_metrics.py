@@ -29,3 +29,14 @@ def test_assurance_metrics_record_lifecycle_and_evidence_outcomes_without_payloa
     counters = client.get("/assurance/metrics").json()["counters"]
 
     assert counters == {"candidate:approved": 1, "candidate:created": 1, "report:pass": 1, "report:verified": 1}
+
+
+def test_fixture_adapter_metrics_record_only_fixed_outcome_labels(tmp_path) -> None:
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite")))
+    client.post("/assurance/multica/fixture-evaluate", json={
+        "envelope": {"correlation_id": "private-id", "source_system": "multica-fixture", "task_id": "private-task", "run_id": "private-run", "change_class": "code_change", "components": {"repo": "a" * 64}, "authority": {}},
+        "baseline": {"release_id": "baseline", "source": "test", "components": {"repo": "b" * 64}, "authority": {}},
+        "replays": [{"case_id": 1, "passed": True}],
+    })
+
+    assert client.get("/assurance/metrics").json()["counters"] == {"adapter:continue_advisory": 1, "report:pass": 1}
