@@ -4,7 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from interlock.assurance.tenancy import TenantContext
+from interlock.assurance.tenancy import TenantContext, require_role
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,7 @@ class TenantCaseStore:
             connection.execute("CREATE INDEX IF NOT EXISTS idx_tenant_cases_scope ON tenant_assurance_cases (tenant_id, workspace_id, id)")
 
     def create(self, context: TenantContext, *, title: str, summary: str) -> TenantCase:
+        require_role(context, "tenant_admin", "assurance_reviewer", "developer")
         if not title or not summary:
             raise ValueError("tenant case title and summary are required")
         with sqlite3.connect(self._db_path) as connection:
