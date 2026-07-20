@@ -14,3 +14,5 @@ def test_tenant_case_store_scopes_writes_and_reads_by_workspace(tmp_path) -> Non
     assert [case.title for case in store.list(acme)] == ["Acme incident"]
     assert store.list(bravo) == []
     assert created.tenant_id == "acme"
+    assert store.get(acme, created.case_id).title == "Acme incident"
+    assert store.get(bravo, created.case_id) is None

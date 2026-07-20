@@ -52,3 +52,15 @@ class TenantCaseStore:
                 (context.tenant_id, context.workspace_id),
             ).fetchall()
         return [TenantCase(int(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4])) for row in rows]
+
+    def get(self, context: TenantContext, case_id: int) -> TenantCase | None:
+        """Resolve one case only inside the caller's immutable tenant/workspace boundary."""
+
+        with sqlite3.connect(self._db_path) as connection:
+            row = connection.execute(
+                "SELECT id, tenant_id, workspace_id, title, summary FROM tenant_assurance_cases WHERE tenant_id = ? AND workspace_id = ? AND id = ?",
+                (context.tenant_id, context.workspace_id, case_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return TenantCase(int(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]))
