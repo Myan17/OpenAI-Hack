@@ -8,7 +8,8 @@ from typing import Sequence
 from pydantic import TypeAdapter
 
 from interlock.assurance.evidence import verify_evidence_bundle
-from interlock.assurance.models import ReleaseEvidenceBundle
+from interlock.assurance.models import ChangeManifest, ProposedChangeEnvelope, ReleaseEvidenceBundle, ReplayCaseResult
+from interlock.assurance.multica_adapter import evaluate_fixture_change
 from interlock.assurance.store import AssuranceStore
 from interlock.engine.models import Policy
 from interlock.engine.simulator import SimulationStep
@@ -57,6 +58,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     import_parser = subparsers.add_parser("snapshot-import", help="restore a snapshot into an empty local store")
     import_parser.add_argument("--db", required=True, type=Path)
     import_parser.add_argument("--input", required=True, type=Path)
+    fixture_parser = subparsers.add_parser("fixture-evaluate", help="evaluate a local Multica-shaped fixture")
+    fixture_parser.add_argument("--envelope", required=True, type=Path)
+    fixture_parser.add_argument("--baseline", required=True, type=Path)
+    fixture_parser.add_argument("--replays", required=True, type=Path)
     args = parser.parse_args(argv)
     if args.command == "verify":
         return _verify(args.bundle)
@@ -76,6 +81,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _export_snapshot(args)
     if args.command == "snapshot-import":
         return _import_snapshot(args)
+    if args.command == "fixture-evaluate":
+        return _evaluate_fixture(args)
     parser.error("unsupported command")
     return 2
 
@@ -208,6 +215,21 @@ def _import_snapshot(args: argparse.Namespace) -> int:
         print(json.dumps({"imported": False, "error": str(error)}))
         return 2
     print(json.dumps({"imported_cases": count}))
+    return 0
+
+
+def _evaluate_fixture(args: argparse.Namespace) -> int:
+    """Evaluate JSON fixtures locally; this command never contacts an agent platform."""
+
+    try:
+        envelope = ProposedChangeEnvelope.model_validate_json(args.envelope.read_text(encoding="utf-8"))
+        baseline = ChangeManifest.model_validate_json(args.baseline.read_text(encoding="utf-8"))
+        replays = TypeAdapter(list[ReplayCaseResult]).validate_json(args.replays.read_text(encoding="utf-8"))
+        evidence, callback = evaluate_fixture_change(envelope, baseline, replays)
+    except (OSError, ValueError) as error:
+        print(json.dumps({"evaluated": False, "error": str(error)}))
+        return 2
+    print(json.dumps({"evidence": evidence.model_dump(mode="json"), "callback": callback.model_dump(mode="json")}, sort_keys=True))
     return 0
 
 
