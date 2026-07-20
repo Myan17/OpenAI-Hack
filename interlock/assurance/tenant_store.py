@@ -65,3 +65,33 @@ class TenantCaseStore:
         if row is None:
             return None
         return TenantCase(int(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]))
+
+
+class TenantRegistry:
+    """Durable tenant/workspace/membership control-plane foundation."""
+
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self._db_path) as connection:
+            connection.execute("CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY)")
+            connection.execute("CREATE TABLE IF NOT EXISTS workspaces (tenant_id TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (tenant_id, id), FOREIGN KEY (tenant_id) REFERENCES tenants(id))")
+            connection.execute("CREATE TABLE IF NOT EXISTS memberships (tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, subject_id TEXT NOT NULL, role TEXT NOT NULL, PRIMARY KEY (tenant_id, workspace_id, subject_id), FOREIGN KEY (tenant_id, workspace_id) REFERENCES workspaces(tenant_id, id))")
+
+    def create_tenant(self, tenant_id: str) -> None:
+        with sqlite3.connect(self._db_path) as connection:
+            connection.execute("INSERT INTO tenants (id) VALUES (?)", (tenant_id,))
+
+    def create_workspace(self, tenant_id: str, workspace_id: str) -> None:
+        with sqlite3.connect(self._db_path) as connection:
+            connection.execute("INSERT INTO workspaces (tenant_id, id) VALUES (?, ?)", (tenant_id, workspace_id))
+
+    def add_membership(self, tenant_id: str, workspace_id: str, subject_id: str, role: str) -> None:
+        TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, subject_id=subject_id, role=role)
+        with sqlite3.connect(self._db_path) as connection:
+            connection.execute("INSERT INTO memberships (tenant_id, workspace_id, subject_id, role) VALUES (?, ?, ?, ?)", (tenant_id, workspace_id, subject_id, role))
+
+    def context_for(self, subject_id: str, tenant_id: str, workspace_id: str) -> TenantContext | None:
+        with sqlite3.connect(self._db_path) as connection:
+            row = connection.execute("SELECT role FROM memberships WHERE subject_id = ? AND tenant_id = ? AND workspace_id = ?", (subject_id, tenant_id, workspace_id)).fetchone()
+        return None if row is None else TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, subject_id=subject_id, role=str(row[0]))

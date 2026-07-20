@@ -1,6 +1,6 @@
 """Additive tenant-scoped persistence must never enumerate another workspace."""
 
-from interlock.assurance.tenant_store import TenantCaseStore
+from interlock.assurance.tenant_store import TenantCaseStore, TenantRegistry
 from interlock.assurance.tenancy import TenantContext
 import pytest
 
@@ -25,3 +25,15 @@ def test_viewer_cannot_create_tenant_case(tmp_path) -> None:
 
     with pytest.raises(PermissionError):
         store.create(viewer, title="Denied", summary="View-only account.")
+
+
+def test_registry_binds_workspace_membership_to_one_tenant(tmp_path) -> None:
+    registry = TenantRegistry(tmp_path / "tenant.sqlite")
+    registry.create_tenant("acme")
+    registry.create_workspace("acme", "prod")
+    registry.add_membership("acme", "prod", "subject-1", "developer")
+
+    context = registry.context_for("subject-1", "acme", "prod")
+
+    assert context is not None and context.role == "developer"
+    assert registry.context_for("subject-1", "other", "prod") is None
