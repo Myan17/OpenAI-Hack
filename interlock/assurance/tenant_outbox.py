@@ -40,3 +40,24 @@ class TenantOutbox:
         with sqlite3.connect(self._db_path) as connection:
             rows = connection.execute("SELECT id, tenant_id, workspace_id, idempotency_key, payload_digest, status FROM tenant_callback_outbox WHERE tenant_id = ? AND workspace_id = ? AND status = 'pending' ORDER BY id", (context.tenant_id, context.workspace_id)).fetchall()
         return [CallbackReceipt(int(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), str(row[5])) for row in rows]
+
+    def mark_delivered(self, context: TenantContext, receipt_id: int) -> CallbackReceipt | None:
+        """Record a local completion only for a pending receipt inside this scope.
+
+        Delivery is intentionally performed by no code in this repository; a future
+        staging transport must explicitly report its result through this boundary.
+        """
+
+        require_role(context, "service", "tenant_admin")
+        with sqlite3.connect(self._db_path) as connection:
+            connection.execute(
+                "UPDATE tenant_callback_outbox SET status = 'delivered' WHERE id = ? AND tenant_id = ? AND workspace_id = ? AND status = 'pending'",
+                (receipt_id, context.tenant_id, context.workspace_id),
+            )
+            row = connection.execute(
+                "SELECT id, tenant_id, workspace_id, idempotency_key, payload_digest, status FROM tenant_callback_outbox WHERE id = ? AND tenant_id = ? AND workspace_id = ? AND status = 'delivered'",
+                (receipt_id, context.tenant_id, context.workspace_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return CallbackReceipt(int(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), str(row[5]))
