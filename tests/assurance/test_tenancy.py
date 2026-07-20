@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from interlock.assurance.tenancy import FixtureIdentityAdapter, TenantContext, require_role
+from interlock.assurance.tenancy import tenant_metric_key
 
 
 def test_tenant_context_is_immutable_and_requires_scope_and_subject() -> None:
@@ -33,3 +34,9 @@ def test_fixture_identity_adapter_requires_complete_scope_claims() -> None:
     assert context.role == "developer"
     with pytest.raises(ValueError, match="missing"):
         adapter.context_from_claims({"tenant_id": "tenant-acme"})
+
+
+def test_tenant_metric_key_never_includes_scope_or_subject_identifiers() -> None:
+    context = TenantContext(tenant_id="tenant-secret", workspace_id="workspace-secret", subject_id="subject-secret", role="developer")
+
+    assert tenant_metric_key(context, "callback_pending") == "tenant:callback_pending"

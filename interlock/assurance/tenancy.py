@@ -26,6 +26,15 @@ def require_role(context: TenantContext, *allowed_roles: TenantRole) -> None:
         raise PermissionError("tenant context role is not authorized for this operation")
 
 
+def tenant_metric_key(context: TenantContext, outcome: str) -> str:
+    """Return a fixed aggregate metric key without leaking tenant/workspace/subject labels."""
+
+    del context
+    if not outcome or not outcome.replace("_", "").isalnum():
+        raise ValueError("tenant metric outcome must be a fixed safe label")
+    return f"tenant:{outcome}"
+
+
 class FixtureIdentityAdapter:
     """Local test-double for a future Entra-backed identity adapter."""
 
