@@ -93,6 +93,55 @@ class ChangeManifest(BaseModel):
         return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
 
 
+class ProposedChangeEnvelope(BaseModel):
+    """Strict, fixture-only orchestration input that contains no prompt or source payload."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    correlation_id: str = Field(min_length=1, max_length=128)
+    source_system: Literal["multica-fixture"] = "multica-fixture"
+    task_id: str = Field(min_length=1, max_length=128)
+    run_id: str = Field(min_length=1, max_length=128)
+    change_class: Literal["code_change", "policy_change", "skill_admission", "adapter_change"]
+    components: dict[str, str] = Field(default_factory=dict)
+    authority: AuthoritySurface = Field(default_factory=AuthoritySurface)
+    provenance: Literal["fixture"] = "fixture"
+
+    @field_validator("components")
+    @classmethod
+    def validate_components(cls, components: dict[str, str]) -> dict[str, str]:
+        """Reuse the manifest's digest discipline for adapter-provided references."""
+
+        return ChangeManifest.validate_component_digests(components)
+
+    def canonical_json(self) -> str:
+        return json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+
+    @property
+    def digest(self) -> str:
+        return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+
+
+class AdvisoryCallback(BaseModel):
+    """Minimum safe result for an external task timeline; never includes raw agent data."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    correlation_id: str = Field(min_length=1, max_length=128)
+    verdict: Literal["pass", "fail", "inconclusive"]
+    action: Literal["continue_advisory", "reviewer_required", "quarantine"]
+    reason_codes: tuple[str, ...] = ()
+    evidence_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    replay_case_ids: tuple[int, ...] = ()
+
+    @field_validator("reason_codes", mode="before")
+    @classmethod
+    def normalize_reason_codes(cls, values: object) -> tuple[str, ...]:
+        return _ordered_unique(values)
+
+
 class AuthorityDelta(BaseModel):
     """Semantic before/after authority changes, separate from raw configuration text."""
 
