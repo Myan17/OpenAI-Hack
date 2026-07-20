@@ -1,5 +1,7 @@
 """Additive tenant-scoped persistence must never enumerate another workspace."""
 
+import sqlite3
+
 from interlock.assurance.tenant_store import TenantCaseStore, TenantRegistry
 from interlock.assurance.tenancy import TenantContext
 import pytest
@@ -37,3 +39,14 @@ def test_registry_binds_workspace_membership_to_one_tenant(tmp_path) -> None:
 
     assert context is not None and context.role == "developer"
     assert registry.context_for("subject-1", "other", "prod") is None
+
+
+def test_registry_rejects_orphaned_workspaces_and_memberships(tmp_path) -> None:
+    registry = TenantRegistry(tmp_path / "tenant.sqlite")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        registry.create_workspace("unknown", "prod")
+
+    registry.create_tenant("acme")
+    with pytest.raises(sqlite3.IntegrityError):
+        registry.add_membership("acme", "unknown", "subject-1", "developer")
