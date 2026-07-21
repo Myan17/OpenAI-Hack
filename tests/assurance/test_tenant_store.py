@@ -50,3 +50,17 @@ def test_registry_rejects_orphaned_workspaces_and_memberships(tmp_path) -> None:
     registry.create_tenant("acme")
     with pytest.raises(sqlite3.IntegrityError):
         registry.add_membership("acme", "unknown", "subject-1", "developer")
+
+
+def test_registry_fails_closed_when_tenant_or_workspace_is_suspended(tmp_path) -> None:
+    registry = TenantRegistry(tmp_path / "tenant.sqlite")
+    registry.create_tenant("acme")
+    registry.create_workspace("acme", "prod")
+    registry.add_membership("acme", "prod", "subject-1", "developer")
+
+    registry.set_workspace_status("acme", "prod", "suspended")
+    assert registry.context_for("subject-1", "acme", "prod") is None
+
+    registry.set_workspace_status("acme", "prod", "active")
+    registry.set_tenant_status("acme", "suspended")
+    assert registry.context_for("subject-1", "acme", "prod") is None

@@ -82,9 +82,15 @@ class TenantRegistry:
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         with _connect(self._db_path) as connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY)")
-            connection.execute("CREATE TABLE IF NOT EXISTS workspaces (tenant_id TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (tenant_id, id), FOREIGN KEY (tenant_id) REFERENCES tenants(id))")
+            connection.execute("CREATE TABLE IF NOT EXISTS tenants (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'active')")
+            connection.execute("CREATE TABLE IF NOT EXISTS workspaces (tenant_id TEXT NOT NULL, id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', PRIMARY KEY (tenant_id, id), FOREIGN KEY (tenant_id) REFERENCES tenants(id))")
             connection.execute("CREATE TABLE IF NOT EXISTS memberships (tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, subject_id TEXT NOT NULL, role TEXT NOT NULL, PRIMARY KEY (tenant_id, workspace_id, subject_id), FOREIGN KEY (tenant_id, workspace_id) REFERENCES workspaces(tenant_id, id))")
+            tenant_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(tenants)").fetchall()}
+            workspace_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(workspaces)").fetchall()}
+            if "status" not in tenant_columns:
+                connection.execute("ALTER TABLE tenants ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            if "status" not in workspace_columns:
+                connection.execute("ALTER TABLE workspaces ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
 
     def create_tenant(self, tenant_id: str) -> None:
         with _connect(self._db_path) as connection:
@@ -99,7 +105,28 @@ class TenantRegistry:
         with _connect(self._db_path) as connection:
             connection.execute("INSERT INTO memberships (tenant_id, workspace_id, subject_id, role) VALUES (?, ?, ?, ?)", (tenant_id, workspace_id, subject_id, role))
 
+    def set_tenant_status(self, tenant_id: str, status: str) -> None:
+        self._set_status("tenants", "id = ?", (tenant_id,), status)
+
+    def set_workspace_status(self, tenant_id: str, workspace_id: str, status: str) -> None:
+        self._set_status("workspaces", "tenant_id = ? AND id = ?", (tenant_id, workspace_id), status)
+
     def context_for(self, subject_id: str, tenant_id: str, workspace_id: str) -> TenantContext | None:
         with sqlite3.connect(self._db_path) as connection:
-            row = connection.execute("SELECT role FROM memberships WHERE subject_id = ? AND tenant_id = ? AND workspace_id = ?", (subject_id, tenant_id, workspace_id)).fetchone()
+            row = connection.execute(
+                """SELECT memberships.role FROM memberships
+                JOIN tenants ON tenants.id = memberships.tenant_id AND tenants.status = 'active'
+                JOIN workspaces ON workspaces.tenant_id = memberships.tenant_id
+                    AND workspaces.id = memberships.workspace_id AND workspaces.status = 'active'
+                WHERE memberships.subject_id = ? AND memberships.tenant_id = ? AND memberships.workspace_id = ?""",
+                (subject_id, tenant_id, workspace_id),
+            ).fetchone()
         return None if row is None else TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, subject_id=subject_id, role=str(row[0]))
+
+    def _set_status(self, table: str, predicate: str, values: tuple[str, ...], status: str) -> None:
+        if status not in {"active", "suspended"}:
+            raise ValueError("tenant lifecycle status must be active or suspended")
+        with _connect(self._db_path) as connection:
+            cursor = connection.execute(f"UPDATE {table} SET status = ? WHERE {predicate}", (status, *values))
+        if cursor.rowcount != 1:
+            raise ValueError("tenant lifecycle target does not exist")
