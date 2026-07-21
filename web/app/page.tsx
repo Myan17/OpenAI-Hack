@@ -57,7 +57,9 @@ export default function Page() {
   const [task, setTask] = useState("Inspect the database schema and stale sessions.");
   const [draft, setDraft] = useState<Policy | null>(null);
   const [policyJson, setPolicyJson] = useState("");
+  const [policyConfirmed, setPolicyConfirmed] = useState(false);
   const [events, setEvents] = useState<VerdictEvent[]>([]);
+  const [eventFilter, setEventFilter] = useState<"all" | "allow" | "halt" | "escalate">("all");
   const [simulation, setSimulation] = useState<SimulationResult | null>(null);
   const [guardrails, setGuardrails] = useState<Guardrail[]>([]);
   const [assuranceCandidates, setAssuranceCandidates] = useState<AssuranceCandidate[]>([]);
@@ -119,6 +121,7 @@ export default function Page() {
       });
       setDraft(policy);
       setPolicyJson(JSON.stringify(policy, null, 2));
+      setPolicyConfirmed(false);
       setStatus("Review the generated policy, then explicitly confirm it.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not draft a policy.");
@@ -134,6 +137,7 @@ export default function Page() {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...editedPolicy, confirmed: true }),
       });
       setDraft(editedPolicy);
+      setPolicyConfirmed(true);
       setStatus("Policy confirmed. Every tool call is now enforced deterministically.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Policy must be valid JSON before it can be confirmed.");
@@ -373,6 +377,7 @@ export default function Page() {
     + guardrails.filter((guardrail) => guardrail.status === "pending").length
     + assuranceCandidates.filter((candidate) => candidate.status === "pending_review").length;
   const evidenceChecks = Object.values(assuranceMetrics?.counters ?? {}).reduce((total, count) => total + count, 0);
+  const visibleEvents = events.filter((event) => eventFilter === "all" || event.decision === eventFilter);
 
   return <main className="app-shell">
     <nav className="topbar" aria-label="Interlock navigation"><a href="#overview">Interlock<span>●</span></a><div><a href="#overview">Overview</a><a href="#review">Review queue</a><a href="#command">Policy studio</a><a href="#activity">Live activity</a><a href="#assurance">Assurance</a></div></nav>
@@ -385,6 +390,15 @@ export default function Page() {
         <article className={pendingReview > 0 ? "overview-card review-needed" : "overview-card"}><span>Pending review</span><b>{pendingReview}</b><small>Escalations and reviewer-governed candidates</small></article>
         <article className="overview-card"><span>Evidence posture</span><b>{evidenceChecks}</b><small>{assuranceHealth?.status === "ok" ? "Report-only assurance available" : "Assurance status unavailable"}</small></article>
       </div>
+    </section>
+    <section className="policy-summary" aria-labelledby="policy-summary-title">
+      <div><p className="section-kicker">Enforcement boundary</p><h2 id="policy-summary-title">Policy authority</h2><p>{!draft ? "Draft a policy to inspect the concrete authority Interlock will enforce." : policyConfirmed ? "Confirmed policy is enforcing the authority shown below." : "Draft policy is visible for review but has no authority until confirmed."}</p></div>
+      {!draft ? <div className="authority-empty">No confirmed policy</div> : <div className="authority-grid">
+        <article><span>Tools</span><b>{draft.allowed_tools.length}</b><small>{draft.allowed_tools.join(", ") || "none"}</small></article>
+        <article><span>Database tables</span><b>{draft.allowed_db_tables.length}</b><small>{draft.allowed_db_tables.join(", ") || "none"}</small></article>
+        <article><span>Forbidden patterns</span><b>{draft.forbidden_patterns.length}</b><small>{draft.forbidden_patterns.join(", ") || "none"}</small></article>
+        <article><span>Irreversible actions</span><b>Escalate</b><small>Human review is required before local execution.</small></article>
+      </div>}
     </section>
     <section id="review" className="panel review-queue" aria-labelledby="review-title">
       <div className="review-heading"><div><p className="section-kicker">Reviewer attention</p><h2 id="review-title">Review queue</h2></div><span className={pendingReview > 0 ? "review-count pending" : "review-count"}>{pendingReview} pending</span></div>
@@ -455,8 +469,8 @@ export default function Page() {
         <b>{fixtureAdapter.callback.action.toUpperCase()}</b> · {fixtureAdapter.callback.verdict.toUpperCase()}<small>Reasons: {fixtureAdapter.callback.reason_codes.join(", ")} · evidence: <code>{fixtureAdapter.callback.evidence_digest}</code></small>
       </article>}
     </section>
-    <section id="activity" className="panel"><div className="section-kicker">Live · Decision stream</div><h2>Live verdicts</h2>
-      {events.length === 0 ? <p>No tool calls yet.</p> : events.map((event) => <article key={event.id} className={event.decision}>
+    <section id="activity" className="panel"><div className="section-kicker">Live · Decision stream</div><div className="activity-heading"><h2>Live decision stream</h2><div className="filter-actions" aria-label="Filter decisions"><button className={eventFilter === "all" ? "filter-active" : ""} onClick={() => setEventFilter("all")}>All</button><button className={eventFilter === "allow" ? "filter-active" : ""} onClick={() => setEventFilter("allow")}>Allowed</button><button className={eventFilter === "halt" ? "filter-active" : ""} onClick={() => setEventFilter("halt")}>Halted</button><button className={eventFilter === "escalate" ? "filter-active" : ""} onClick={() => setEventFilter("escalate")}>Escalated</button></div></div>
+      {visibleEvents.length === 0 ? <p>No matching tool calls yet.</p> : visibleEvents.map((event) => <article key={event.id} className={event.decision}>
         <b>{event.decision.toUpperCase()}</b> · {event.tool} — {event.reason} <small>{event.matched_rule}</small>
         <code className="action-payload">{event.args_json}</code>
         {event.decision === "escalate" && <span className="approval-actions"><button onClick={() => resolveEscalation(event.id, "approved")} disabled={busy}>Approve</button><button className="reject" onClick={() => resolveEscalation(event.id, "rejected")} disabled={busy}>Reject</button></span>}

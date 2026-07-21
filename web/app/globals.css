@@ -64,7 +64,7 @@ input:focus-visible {
 
 .hero {
   max-width: 800px;
-  padding: 5rem 0 3rem;
+  padding: 3.5rem 0 2rem;
 }
 
 .eyebrow,
@@ -79,7 +79,7 @@ input:focus-visible {
 .hero h1 {
   max-width: 760px;
   margin: 0.7rem 0 1.3rem;
-  font-size: clamp(3rem, 8vw, 6.5rem);
+  font-size: clamp(3rem, 6vw, 5.2rem);
   line-height: 0.93;
   letter-spacing: -0.075em;
 }
@@ -203,6 +203,87 @@ input:focus-visible {
 }
 
 .review-list { margin-top: 1rem; }
+
+.policy-summary {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.9fr) minmax(0, 1.6fr);
+  gap: 1.5rem;
+  margin: 1.25rem 0;
+  padding: 1.35rem;
+  border: 1px solid #33466d;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #0f1930, #101a2e);
+}
+
+.policy-summary h2 { margin-bottom: 0.2rem; }
+.policy-summary p { margin-bottom: 0; font-size: 0.92rem; }
+
+.authority-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.authority-grid article,
+.authority-empty {
+  min-height: 105px;
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid #2d405f;
+  border-left: 1px solid #2d405f;
+  border-radius: 10px;
+  background: #091224a8;
+}
+
+.authority-grid span {
+  display: block;
+  color: #a0b3d9;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.authority-grid b {
+  display: block;
+  margin: 0.25rem 0;
+  color: #f2f5ff;
+  font-size: 1.1rem;
+}
+
+.authority-empty {
+  display: grid;
+  place-items: center;
+  border-style: dashed;
+  color: #b5c3df;
+}
+
+.activity-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.filter-actions button {
+  padding: 0.36rem 0.55rem;
+  border: 1px solid #314565;
+  background: #101b31;
+  color: #b8c8e8;
+  font-size: 0.75rem;
+}
+
+.filter-actions button.filter-active {
+  border-color: #8fa9ff;
+  background: #7190f3;
+  color: #071020;
+}
 
 .panel {
   position: relative;
@@ -367,6 +448,9 @@ button.reject { background: linear-gradient(135deg, #ff8195, #e9506c); }
   .overview-heading { align-items: flex-start; flex-direction: column; }
   .data-boundary { text-align: left; }
   .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .policy-summary { grid-template-columns: 1fr; }
+  .activity-heading { align-items: flex-start; flex-direction: column; }
+  .authority-grid { grid-template-columns: 1fr; }
   .actions button { flex: 1 1 100%; }
 }
 
