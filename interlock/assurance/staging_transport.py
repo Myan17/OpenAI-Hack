@@ -8,7 +8,7 @@ from interlock.assurance.tenant_outbox import CallbackReceipt, TenantOutbox
 from interlock.assurance.tenancy import TenantContext, require_role
 
 
-DeliveryStatus = Literal["delivered", "duplicate", "unavailable", "invalid"]
+DeliveryStatus = Literal["delivered", "duplicate", "unavailable", "invalid", "disabled"]
 
 
 @dataclass(frozen=True)
@@ -71,14 +71,23 @@ class FixtureAdvisoryTransport:
 class FixtureCallbackWorker:
     """Local-only worker boundary that fails closed before a future transport call."""
 
-    def __init__(self, outbox: TenantOutbox, transport: AdvisoryTransport) -> None:
+    def __init__(
+        self,
+        outbox: TenantOutbox,
+        transport: AdvisoryTransport,
+        *,
+        callback_enabled: bool = False,
+    ) -> None:
         self._outbox = outbox
         self._transport = transport
+        self._callback_enabled = callback_enabled
 
     def process(
         self, context: TenantContext, receipt: CallbackReceipt, callback: AdvisoryCallback
     ) -> DeliveryResult:
         require_role(context, "service", "tenant_admin")
+        if not self._callback_enabled:
+            return DeliveryResult("disabled", receipt.idempotency_key)
         if (
             receipt.tenant_id != context.tenant_id
             or receipt.workspace_id != context.workspace_id

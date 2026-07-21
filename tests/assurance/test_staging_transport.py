@@ -23,7 +23,7 @@ def test_fixture_worker_delivers_once_and_marks_the_local_outbox(tmp_path) -> No
     receipt = outbox.enqueue(context, idempotency_key="corr-1", payload_digest="a" * 64)
     transport = FixtureAdvisoryTransport()
 
-    result = FixtureCallbackWorker(outbox, transport).process(context, receipt, _callback())
+    result = FixtureCallbackWorker(outbox, transport, callback_enabled=True).process(context, receipt, _callback())
 
     assert result.status == "delivered"
     assert outbox.pending(context) == []
@@ -35,7 +35,7 @@ def test_fixture_worker_fails_closed_for_unavailable_duplicate_and_invalid_work(
     outbox = TenantOutbox(tmp_path / "outbox.sqlite")
     receipt = outbox.enqueue(context, idempotency_key="corr-1", payload_digest="a" * 64)
     transport = FixtureAdvisoryTransport(available=False)
-    worker = FixtureCallbackWorker(outbox, transport)
+    worker = FixtureCallbackWorker(outbox, transport, callback_enabled=True)
 
     unavailable = worker.process(context, receipt, _callback())
     invalid = worker.process(context, receipt, _callback("b" * 64))
@@ -49,3 +49,16 @@ def test_fixture_worker_fails_closed_for_unavailable_duplicate_and_invalid_work(
     first = duplicate_transport.dispatch(context, _callback(), idempotency_key="corr-1")
     duplicate = duplicate_transport.dispatch(context, _callback(), idempotency_key="corr-1")
     assert (first.status, duplicate.status) == ("delivered", "duplicate")
+
+
+def test_fixture_worker_is_disabled_by_default_without_touching_the_outbox(tmp_path) -> None:
+    context = _context()
+    outbox = TenantOutbox(tmp_path / "outbox.sqlite")
+    receipt = outbox.enqueue(context, idempotency_key="corr-1", payload_digest="a" * 64)
+    transport = FixtureAdvisoryTransport()
+
+    result = FixtureCallbackWorker(outbox, transport).process(context, receipt, _callback())
+
+    assert result.status == "disabled"
+    assert outbox.pending(context) == [receipt]
+    assert transport.attempts == ()
