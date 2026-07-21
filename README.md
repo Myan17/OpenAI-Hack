@@ -11,7 +11,9 @@
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-15-111111?logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker%20Compose-local%20demo-2496ED?logo=docker&logoColor=white)
 ![Azure](https://img.shields.io/badge/Azure-Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-8DABFF)
 
@@ -83,6 +85,7 @@ The dashboard makes the enforcement boundary inspectable instead of hiding it be
 | **Deterministic core** | Python 3.13, Pydantic, PyYAML | Typed policy contracts and pure policy-as-code enforcement |
 | **API & realtime surface** | FastAPI, Uvicorn, Server-Sent Events | Dashboard contracts, simulator, evidence verification, and activity stream |
 | **Operator experience** | Next.js 15, React 19, TypeScript 5.8 | Safety Operations Center and policy/review/evidence workspaces |
+| **Local packaging** | Docker, Docker Compose | One-command local image build and demo startup |
 | **Agent-facing integration** | OpenAI Agents SDK | Optional policy-draft and agent path; never part of the enforcement decision |
 | **Observability & local state** | Langfuse-compatible instrumentation, SQLite fixtures | Inspectable local traces and deterministic demo state |
 | **Verification** | Pytest, golden-scenario evaluation, Next.js build | Regression, purity, authorization, tenancy, and UI contracts |
@@ -138,6 +141,10 @@ Interlock is verified as a control system, not just a visual demo:
 - Frontend production build validation.
 
 For local setup, the full demo script, and contributor commands, see the [demo guide](docs/DEMO.md) and [Waterfall delivery record](docs/WATERFALL_MASTER_PLAN.md).
+
+### Docker Compose
+
+Run the contained public-demo image locally with `docker compose up --build`, then open [http://127.0.0.1:8000](http://127.0.0.1:8000). The standard safety demo needs no API key; do not place an `OPENAI_API_KEY` in Compose configuration or source control.
 
 ## Deployment & boundaries
 
