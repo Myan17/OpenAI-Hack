@@ -4,7 +4,7 @@
 
 ![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)
 ![Next.js 15](https://img.shields.io/badge/Next.js-15-111111?logo=nextdotjs&logoColor=white)
-![License](https://img.shields.io/badge/status-hackathon%20prototype-8dabff)
+![License](https://img.shields.io/badge/license-MIT-8dabff)
 
 Interlock is a local-first control plane that sits between an AI agent and the tools it can affect. A model may propose a least-privilege policy, but a human must confirm it and a deterministic engine decides every subsequent action. Interlock is designed to make agent behavior inspectable, replayable, and safe to demo without granting a model authority over the enforcement boundary.
 
@@ -60,7 +60,7 @@ flowchart LR
 | Assurance memory | Replays approved failure cases and generates verifiable local evidence | Advisory only; no runtime mutation |
 | Multica fixture adapter | Previews a typed local callback and quarantine decision | No Multica daemon, API, or network call |
 
-Every visible effect is deliberately contained: local SQLite fixtures, a contained local directory, and an in-memory mock ledger. The demo has no shell execution, network effect, real transfer, real database, external task callback, or deployed Azure workload.
+Every visible agent effect is deliberately contained: local SQLite fixtures, a contained local directory, and an in-memory mock ledger. The demo has no shell execution, agent-initiated network effect, real transfer, real database, or external task callback. The public staging deployment serves this same fixture-only demo; it does not connect to a live Multica endpoint or customer system.
 
 ## Experience the demo
 
@@ -73,6 +73,18 @@ Start the backend and dashboard, then follow the numbered workflow in the comman
 5. Use the **Assurance workspace** to review a candidate guardrail, replay an approved regression fixture, and verify a fixture-only evidence bundle.
 
 The dashboard is intentionally an operator-facing command center: the primary path appears first, and release assurance, local evidence, and adapter previews remain visible as advanced capabilities—not hidden model behavior.
+
+### Public staging demo
+
+The public demo is available at [Interlock on Azure Container Apps](https://interlock-demo.agreeablestone-318f5583.eastus.azurecontainerapps.io). It serves the FastAPI API and exported dashboard from one ephemeral container. A fresh revision begins with an intentionally empty local-fixture event log, so the overview tiles may show zero decisions, runs, reviews, and evidence until you run the guarded safety demo. This is expected data state—not a frontend fallback or unavailable backend.
+
+Verify the deployed runtime before recording:
+
+```bash
+curl https://interlock-demo.agreeablestone-318f5583.eastus.azurecontainerapps.io/health
+```
+
+It must return `{"status":"ok"}`. Then use the dashboard's **Policy studio** and **Run safety demo** controls to create visible deterministic `ALLOW` and `HALT` outcomes. The container's fixture state is ephemeral and can reset when Azure replaces the revision.
 
 ## Quick start
 
@@ -140,15 +152,15 @@ It returns `0` for a valid bundle, `1` for tampered or invalid evidence, and `2`
 
 ## Deployment posture
 
-The repository contains an Azure-oriented, multi-tenant deployment foundation and an OIDC workflow contract. It is intentionally **not a live production deployment**.
+The repository has a public Azure staging demo plus an Azure-oriented, multi-tenant production foundation. The public demo is intentionally **not a production or customer-data deployment**.
 
-- The Bicep template is a parameterized, non-deployed foundation.
-- GitHub Actions uses OIDC and avoids client secrets.
+- The public demo uses GitHub Actions OIDC, a GitHub Container Registry image, and Azure's managed hostname; it uses no client secret.
+- The Bicep template remains a parameterized foundation for the broader multi-tenant architecture.
 - Staging and production require separate GitHub Environments and resource groups.
 - A `what-if` runs before an explicit infrastructure apply.
 - Multica integration is fixture-only and advisory; it does not contact a real endpoint.
 
-Read [the Azure OIDC deployment runbook](docs/AZURE_OIDC_DEPLOYMENT_RUNBOOK.md), [the multi-tenant execution plan](docs/AZURE_MULTITENANT_WATERFALL_EXECUTION_PLAN.md), and [the infrastructure README](infra/README.md) before enabling any apply step.
+Read [the public-demo deployment guide](docs/PUBLIC_DEMO_DEPLOYMENT.md), [the Azure OIDC deployment runbook](docs/AZURE_OIDC_DEPLOYMENT_RUNBOOK.md), [the multi-tenant execution plan](docs/AZURE_MULTITENANT_WATERFALL_EXECUTION_PLAN.md), and [the infrastructure README](infra/README.md) before enabling any production apply step.
 
 ## Repository guide
 
@@ -181,3 +193,7 @@ Keep changes deterministic, scoped, and verifiable:
 5. Treat Azure, Entra, GitHub OIDC, Multica endpoints, and any external effect as separately authorized operations.
 
 For the complete design and delivery record, start with [the master Waterfall plan](docs/WATERFALL_MASTER_PLAN.md) and [the demo guide](docs/DEMO.md).
+
+## License
+
+Released under the [MIT License](LICENSE).
