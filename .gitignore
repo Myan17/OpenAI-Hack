@@ -3,6 +3,7 @@
 .venv/
 node_modules/
 .next/
+web/out/
 *.sqlite
 __pycache__/
 .pytest_cache/
