@@ -41,3 +41,14 @@ def test_fixture_identity_fails_closed_for_unknown_or_role_mismatched_membership
         authorizer.authorize(_claims(role="tenant_admin"))
     with pytest.raises(PermissionError):
         authorizer.authorize(_claims(subject_id="unknown"))
+
+
+def test_fixture_identity_fails_closed_when_its_tenant_is_suspended(tmp_path) -> None:
+    registry = TenantRegistry(tmp_path / "tenant.sqlite")
+    registry.create_tenant("acme")
+    registry.create_workspace("acme", "staging")
+    registry.add_membership("acme", "staging", "subject-1", "developer")
+    registry.set_tenant_status("acme", "suspended")
+
+    with pytest.raises(PermissionError):
+        TenantRequestAuthorizer(registry).authorize(_claims())
