@@ -1,198 +1,142 @@
+<div align="center">
+
 # Interlock
 
-> Deterministic authorization for autonomous-agent tool calls.
+### Control every agent action.
 
-![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)
-![Next.js 15](https://img.shields.io/badge/Next.js-15-111111?logo=nextdotjs&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-8dabff)
+**A deterministic safety layer between autonomous agents and the tools they can affect.**
 
-Interlock is a local-first control plane that sits between an AI agent and the tools it can affect. A model may propose a least-privilege policy, but a human must confirm it and a deterministic engine decides every subsequent action. Interlock is designed to make agent behavior inspectable, replayable, and safe to demo without granting a model authority over the enforcement boundary.
+[Live demo](https://interlock-demo.agreeablestone-318f5583.eastus.azurecontainerapps.io) · [Architecture](#architecture) · [Technology](#technology) · [Demo guide](docs/DEMO.md) · [License](#license)
 
-**The core promise:** authorized reads stay fast; malformed, forbidden, out-of-scope, or irreversible actions are stopped or escalated before an effect is dispatched.
+![Python](https://img.shields.io/badge/Python-3.13+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-15-111111?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)
+![Azure](https://img.shields.io/badge/Azure-Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-8DABFF)
+
+</div>
+
+---
 
 ## Why Interlock
 
-Agent prompts are not an authorization system. They can be misunderstood, overridden by adversarial text, or silently broadened by a tool call. Interlock reconciles the _actual proposed action_ with a typed, human-confirmed policy instead of asking another model whether the prompt appears safe.
+Agent prompts are not authorization. An agent can misunderstand instructions, encounter adversarial text, or propose a tool call that exceeds the task's intended scope. Interlock evaluates the **concrete action** against a typed, human-confirmed policy before that action can reach an effect adapter.
 
-## Where Interlock fits
+The model may propose. The human owns authority. The deterministic engine decides.
 
-Interlock is deliberately narrower than an agent platform and different from an investigation system:
+| Without a control boundary | With Interlock |
+| --- | --- |
+| A model's interpretation becomes operational authority | A typed policy is reviewed before it becomes authority |
+| Tool calls are trusted because they look plausible | Every tool call is checked against declared scope |
+| Failures are difficult to replay or explain | Verdicts, reasons, traces, and evidence are preserved |
+| A broad policy can silently expand impact | Irreversible or out-of-scope actions halt or escalate |
 
-| System concern | Interlock's role | Explicit non-goal |
-| --- | --- | --- |
-| Agent work coordination | Govern each proposed tool action, preserve the decision trail, and route irreversible actions to a human | Issue routing, agent staffing, or task-board replacement |
-| Agent reasoning | Allow a model to propose a policy or task action | Let a model validate, approve, or override its own authority |
-| Evidence and assurance | Replay safety cases and compare typed authority in report-only mode | Claim a release is safe without replay/evidence results |
-| External orchestration | Produce a strict fixture-only advisory callback contract | Connect to a live Multica daemon, task board, or webhook |
+## What it does
 
-This makes Interlock complementary to [Multica](https://github.com/multica-ai/multica), which focuses on managing coding-agent work, and conceptually aligned with [CausalOps](https://github.com/darshgarg7/CausalOps), whose design separates model proposals from evidence-backed validation. Interlock applies that separation to **runtime authorization**: a model can propose; deterministic policy and human approval decide what can happen.
-
-## In 60 seconds
-
-1. Open the **Safety overview** and verify that local runtime and report-only assurance are available.
-2. Use **Policy studio** to draft a task policy. The **Policy authority** surface shows the exact tool, database, and pattern scope before it has authority.
-3. Confirm the policy, then run the local safety demo. The **Live decision stream** exposes `ALLOW`, `HALT`, and `ESCALATE` outcomes with the matched policy reason.
-4. Open **Review queue** to resolve any human-owned escalation or candidate review.
-5. Generate an **Evidence workspace** bundle to verify a local replay result and authority delta without dispatching an external effect.
+1. **Draft** — an agent or model proposes a least-privilege policy and a concrete tool action.
+2. **Confirm** — a human inspects and confirms the authority that policy grants.
+3. **Interlock** — a pure deterministic engine returns `ALLOW`, `HALT`, or `ESCALATE` before a contained local effect can run.
+4. **Prove** — the dashboard exposes the decision trail, replay results, review queue, and tamper-evident evidence bundle.
 
 ```mermaid
 flowchart LR
-  T[Task] --> D[Model drafts a policy]
-  D --> H[Human confirms scope]
-  A[Agent proposes tool action] --> E[Deterministic engine]
-  H --> E
-  E -->|ALLOW| S[Local sandbox effect]
-  E -->|HALT| L[Append-only verdict log]
-  E -->|ESCALATE| R[Human decision]
-  L --> UI[FastAPI SSE + Next.js command center]
-  R --> E
+    A[Agent proposes<br/>policy + action] --> H[Human confirms<br/>least privilege]
+    H --> I[Interlock<br/>deterministic engine]
+    A --> I
+    I -->|ALLOW| S[Contained sandbox<br/>effect]
+    I -->|HALT| L[Append-only<br/>verdict log]
+    I -->|ESCALATE| R[Reviewer queue]
+    L --> E[Replay & evidence]
+    R --> I
 ```
 
-## What the demo proves
+## Safety Operations Center
 
-| Capability | What Interlock does | Boundary |
+The dashboard makes the enforcement boundary inspectable instead of hiding it behind a chat interface.
+
+| Workspace | Operator question it answers |
+| --- | --- |
+| **Safety overview** | What is Interlock enforcing, and what is the current decision posture? |
+| **Policy studio** | What exact database, tool, and pattern authority will this policy grant? |
+| **Live activity** | Why was an action allowed, halted, or escalated? |
+| **Review queue** | Which actions and learning candidates require a human decision? |
+| **Assurance** | Does a candidate preserve known-safe behavior and halt known-bad cases? |
+| **Evidence** | Can the decision and replay evidence be independently verified? |
+
+## Built to demonstrate—not merely describe
+
+| Capability | Demonstration | Safety boundary |
 | --- | --- | --- |
-| Least-privilege policy | Builds and displays a typed policy, then requires explicit confirmation | A policy draft is not authority |
-| Deterministic enforcement | Decides each tool call with policy-as-code | The enforcement engine never consults an LLM |
-| Attack containment | Injects a destructive prompt to demonstrate an explicit halt | No real destructive operation is performed |
-| Trace simulation | Replays labeled developer-agent steps and reports coverage and friction | Simulation never dispatches effects |
-| Learning guardrails | Captures verified patterns as human-reviewable candidates | Agents cannot activate their own guardrails |
-| Assurance memory | Replays approved failure cases and generates verifiable local evidence | Advisory only; no runtime mutation |
-| Multica fixture adapter | Previews a typed local callback and quarantine decision | No Multica daemon, API, or network call |
+| Least-privilege policy | Draft, inspect, and explicitly confirm typed authority | Drafts never grant authority by themselves |
+| Deterministic enforcement | Evaluate each tool call as `ALLOW`, `HALT`, or `ESCALATE` | The engine never asks an LLM for a verdict |
+| Attack containment | Exercise a destructive prompt path and halt it | No destructive operation is dispatched |
+| Developer-agent trace simulation | Measure allowed actions, halts, misses, and friction | Trace simulation cannot dispatch effects |
+| Guardrail memory | Admit verified failure patterns through reviewer governance | Agents cannot activate their own guardrails |
+| Assurance evidence | Replay cases and verify fixture-only evidence bundles | Advisory and report-only; no runtime mutation |
+| Multica compatibility | Preview strict local callback and quarantine contracts | No live Multica daemon, API, or network call |
 
-Every visible agent effect is deliberately contained: local SQLite fixtures, a contained local directory, and an in-memory mock ledger. The demo has no shell execution, agent-initiated network effect, real transfer, real database, or external task callback. The public staging deployment serves this same fixture-only demo; it does not connect to a live Multica endpoint or customer system.
+## Technology
 
-## Experience the demo
+| Layer | Technology | Role in Interlock |
+| --- | --- | --- |
+| **Deterministic core** | Python 3.13, Pydantic, PyYAML | Typed policy contracts and pure policy-as-code enforcement |
+| **API & realtime surface** | FastAPI, Uvicorn, Server-Sent Events | Dashboard contracts, simulator, evidence verification, and activity stream |
+| **Operator experience** | Next.js 15, React 19, TypeScript 5.8 | Safety Operations Center and policy/review/evidence workspaces |
+| **Agent-facing integration** | OpenAI Agents SDK | Optional policy-draft and agent path; never part of the enforcement decision |
+| **Observability & local state** | Langfuse-compatible instrumentation, SQLite fixtures | Inspectable local traces and deterministic demo state |
+| **Verification** | Pytest, golden-scenario evaluation, Next.js build | Regression, purity, authorization, tenancy, and UI contracts |
+| **Public staging delivery** | GitHub Actions, GitHub OIDC, GHCR, Azure Container Apps | Secretless build and deployment to an Azure-managed hostname |
 
-Start the backend and dashboard, then follow the numbered workflow in the command center:
+## Try the live demo
 
-1. **Draft a policy** for the default developer task.
-2. **Review and confirm** the editable least-privilege JSON policy.
-3. **Simulate the developer trace** to inspect safe actions allowed, unsafe actions stopped, false blocks, unsafe misses, and impacted sessions.
-4. **Run the safety demo** or turn on **Add an unsafe instruction** and run the guarded agent. The live stream shows the allowed read and deterministic halt.
-5. Use the **Assurance workspace** to review a candidate guardrail, replay an approved regression fixture, and verify a fixture-only evidence bundle.
+Open the [public Interlock demo](https://interlock-demo.agreeablestone-318f5583.eastus.azurecontainerapps.io), then follow the visible operator path:
 
-The dashboard is intentionally an operator-facing command center: the primary path appears first, and release assurance, local evidence, and adapter previews remain visible as advanced capabilities—not hidden model behavior.
+**Policy studio → review authority → confirm policy → run safety demo → inspect the decision stream.**
 
-### Public staging demo
-
-The public demo is available at [Interlock on Azure Container Apps](https://interlock-demo.agreeablestone-318f5583.eastus.azurecontainerapps.io). It serves the FastAPI API and exported dashboard from one ephemeral container. A fresh revision begins with an intentionally empty local-fixture event log, so the overview tiles may show zero decisions, runs, reviews, and evidence until you run the guarded safety demo. This is expected data state—not a frontend fallback or unavailable backend.
-
-Verify the deployed runtime before recording:
-
-```bash
-curl https://interlock-demo.agreeablestone-318f5583.eastus.azurecontainerapps.io/health
-```
-
-It must return `{"status":"ok"}`. Then use the dashboard's **Policy studio** and **Run safety demo** controls to create visible deterministic `ALLOW` and `HALT` outcomes. The container's fixture state is ephemeral and can reset when Azure replaces the revision.
-
-## Quick start
-
-### Prerequisites
-
-- Python 3.13+
-- Node.js 20+
-- An OpenAI API key **only** if you want live policy-draft and agent calls
-
-```bash
-git clone git@github.com:Myan17/OpenAI-Hack.git
-cd OpenAI-Hack
-
-python3.13 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-
-# Optional for live model-backed policy draft / agent demo.
-cp .env.example .env
-# Add OPENAI_API_KEY to .env locally. Never commit it.
-
-.venv/bin/python -m uvicorn interlock.api.main:app --reload
-```
-
-In a second terminal:
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+The hosted instance intentionally begins with an empty fixture dataset. Zero counters are expected until the safety demo generates contained `ALLOW` and `HALT` decisions. It is a public staging demonstration—not a customer-data, production, or live-Multica environment.
 
 ## Architecture
 
-Interlock keeps generative and enforcement concerns separate:
+Interlock keeps generative and enforcement concerns intentionally separate:
 
-- **Drafting plane:** a model can translate a task into an inspectable policy draft.
-- **Authorization plane:** a human explicitly confirms the scope.
-- **Enforcement plane:** pure, deterministic policy-as-code returns `ALLOW`, `HALT`, or `ESCALATE` for the concrete tool call.
-- **Effect plane:** only a verdict that passes the boundary may reach the local sandbox implementation.
-- **Evidence plane:** verdicts, replay results, lifecycle state, and tamper-evident evidence bundles support audit and regression control.
+- **Drafting plane** — an agent can turn a task into an inspectable policy draft.
+- **Authorization plane** — a human explicitly confirms the scope.
+- **Enforcement plane** — pure policy-as-code evaluates the concrete action.
+- **Effect plane** — only allowed verdicts may reach contained adapters.
+- **Evidence plane** — verdicts, replay results, lifecycle state, and verifiable bundles support review and regression control.
 
-The enforcement engine is intentionally pure: it imports no model or network client. A dedicated purity test executes engine imports in a fresh process to preserve that invariant.
+The enforcement engine imports no model, network client, database, or effect adapter. A dedicated purity test protects that invariant.
 
-## Verification
-
-Run the local quality gate before changing policy, workflow, or UI behavior:
-
-```bash
-.venv/bin/python -m pytest -p no:cacheprovider -q
-.venv/bin/python -m eval.run
-cd web && npm run build
-```
-
-`eval.run` executes 25 golden scenarios: 10 authorized benign reads and 15 adversarial, malformed, forbidden, or out-of-scope actions. The gate fails if any known-bad action is not halted or any known-good action is blocked.
-
-To validate a saved local evidence bundle without calling the API server:
-
-```bash
-.venv/bin/python -m interlock.assurance.cli verify evidence-bundle.json
-```
-
-It returns `0` for a valid bundle, `1` for tampered or invalid evidence, and `2` for unreadable or malformed input.
-
-## Deployment posture
-
-The repository has a public Azure staging demo plus an Azure-oriented, multi-tenant production foundation. The public demo is intentionally **not a production or customer-data deployment**.
-
-- The public demo uses GitHub Actions OIDC, a GitHub Container Registry image, and Azure's managed hostname; it uses no client secret.
-- The Bicep template remains a parameterized foundation for the broader multi-tenant architecture.
-- Staging and production require separate GitHub Environments and resource groups.
-- A `what-if` runs before an explicit infrastructure apply.
-- Multica integration is fixture-only and advisory; it does not contact a real endpoint.
-
-Read [the public-demo deployment guide](docs/PUBLIC_DEMO_DEPLOYMENT.md), [the Azure OIDC deployment runbook](docs/AZURE_OIDC_DEPLOYMENT_RUNBOOK.md), [the multi-tenant execution plan](docs/AZURE_MULTITENANT_WATERFALL_EXECUTION_PLAN.md), and [the infrastructure README](infra/README.md) before enabling any production apply step.
-
-## Repository guide
+## Repository map
 
 | Path | Purpose |
 | --- | --- |
-| `interlock/engine/` | Pure deterministic policy and enforcement logic |
-| `interlock/api/` | FastAPI contracts, SSE feed, local orchestration |
-| `interlock/assurance/` | Replay, evidence, lifecycle, tenancy, and fixture adapter controls |
-| `interlock/tools/` | Local sandboxed effect adapters |
-| `web/` | Next.js operator command center |
-| `tests/` | Unit, contract, integration, purity, tenancy, and dashboard tests |
-| `eval/` | Golden-scenario safety evaluation |
-| `infra/` | Parameterized Azure foundation and guarded workflow |
-| `docs/` | Research, system design, runbooks, and Waterfall plans |
+| [`interlock/engine/`](interlock/engine/) | Pure deterministic policy and enforcement logic |
+| [`interlock/api/`](interlock/api/) | FastAPI contracts, activity stream, and local orchestration |
+| [`interlock/assurance/`](interlock/assurance/) | Replay, evidence, lifecycle, tenancy, and fixture-adapter controls |
+| [`interlock/tools/`](interlock/tools/) | Contained local sandbox effect adapters |
+| [`web/`](web/) | Next.js Safety Operations Center |
+| [`tests/`](tests/) | Unit, contract, integration, purity, tenancy, and dashboard coverage |
+| [`eval/`](eval/) | Golden-scenario safety evaluation |
+| [`docs/`](docs/) | Demo script, runbooks, architecture, and Waterfall delivery record |
 
-## Security model and current limits
+## Verification
 
-Interlock is a hackathon prototype with real safety design constraints, not a claim of production certification. The dashboard and local adapters are safe by construction for the demo, but production use still needs reviewed infrastructure, real identity proofing, tenant onboarding, private networking, key management, external asset inventory, signed approvals, retention policy, and operational ownership.
+Interlock is verified as a control system, not just a visual demo:
 
-In-policy irreversible actions currently return `ESCALATE` rather than running automatically. The policy compiler is conservative and falls back to deny-all on failure. The current Multica adapter is intentionally local and fixture-only.
+- Unit, contract, integration, purity, tenancy, API, and dashboard tests.
+- Golden scenarios covering authorized benign actions and adversarial, malformed, forbidden, or out-of-scope actions.
+- A fail-closed evaluator: a known-bad action must never be allowed and a known-good action must not be blocked.
+- Frontend production build validation.
 
-## Contributing
+For local setup, the full demo script, and contributor commands, see the [demo guide](docs/DEMO.md) and [Waterfall delivery record](docs/WATERFALL_MASTER_PLAN.md).
 
-Keep changes deterministic, scoped, and verifiable:
+## Deployment & boundaries
 
-1. Preserve `interlock.engine` purity—no model, network, database, or effect adapter in the enforcement path.
-2. Add a focused test before or alongside any behavior change.
-3. Run the full Python suite, golden evaluation, and frontend build before committing.
-4. Do not add credentials, generated local data, or cloud identifiers to the repository.
-5. Treat Azure, Entra, GitHub OIDC, Multica endpoints, and any external effect as separately authorized operations.
+The public demo uses GitHub Actions OIDC, a GitHub Container Registry image, and Azure Container Apps. It contains no OpenAI key, client secret, customer data, production database, or live Multica connection.
 
-For the complete design and delivery record, start with [the master Waterfall plan](docs/WATERFALL_MASTER_PLAN.md) and [the demo guide](docs/DEMO.md).
+Interlock is a hackathon project with deliberate production-oriented constraints—not a claim of production certification. Real deployment still requires tenant onboarding, verified identity, private networking, managed keys, external asset inventory, signed approvals, retention policy, and operational ownership. See the [public-demo deployment guide](docs/PUBLIC_DEMO_DEPLOYMENT.md) and [Azure OIDC runbook](docs/AZURE_OIDC_DEPLOYMENT_RUNBOOK.md).
 
 ## License
 
