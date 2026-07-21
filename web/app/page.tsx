@@ -375,7 +375,7 @@ export default function Page() {
   const evidenceChecks = Object.values(assuranceMetrics?.counters ?? {}).reduce((total, count) => total + count, 0);
 
   return <main className="app-shell">
-    <nav className="topbar" aria-label="Interlock navigation"><a href="#overview">Interlock<span>●</span></a><div><a href="#overview">Overview</a><a href="#command">Policy studio</a><a href="#activity">Live activity</a><a href="#assurance">Assurance</a></div></nav>
+    <nav className="topbar" aria-label="Interlock navigation"><a href="#overview">Interlock<span>●</span></a><div><a href="#overview">Overview</a><a href="#review">Review queue</a><a href="#command">Policy studio</a><a href="#activity">Live activity</a><a href="#assurance">Assurance</a></div></nav>
     <header className="hero"><p className="eyebrow">OpenAI Build Week · Developer Tools</p><h1>Control every <em>agent action.</em></h1><p>Interlock is the deterministic safety layer between an autonomous agent and the tools it can affect.</p><div className="trust-row"><span>● Deterministic engine</span><span>● Sandbox mode</span><span>● Evidence-ready</span></div></header>
     <section id="overview" className="overview" aria-labelledby="overview-title">
       <div className="overview-heading"><div><p className="section-kicker">Operations center</p><h2 id="overview-title">Safety overview</h2></div><p className="data-boundary">Local fixture data · {runtimeHealth?.status === "ok" ? "Runtime ready" : "Runtime unavailable"} · {assuranceHealth?.mode ?? "assurance status unavailable"}</p></div>
@@ -385,6 +385,14 @@ export default function Page() {
         <article className={pendingReview > 0 ? "overview-card review-needed" : "overview-card"}><span>Pending review</span><b>{pendingReview}</b><small>Escalations and reviewer-governed candidates</small></article>
         <article className="overview-card"><span>Evidence posture</span><b>{evidenceChecks}</b><small>{assuranceHealth?.status === "ok" ? "Report-only assurance available" : "Assurance status unavailable"}</small></article>
       </div>
+    </section>
+    <section id="review" className="panel review-queue" aria-labelledby="review-title">
+      <div className="review-heading"><div><p className="section-kicker">Reviewer attention</p><h2 id="review-title">Review queue</h2></div><span className={pendingReview > 0 ? "review-count pending" : "review-count"}>{pendingReview} pending</span></div>
+      {pendingReview === 0 ? <p className="empty-review">No pending local reviews. New escalations and reviewer-governed candidates will appear here.</p> : <div className="review-list">
+        {events.filter((event) => event.decision === "escalate").map((event) => <article key={`event-${event.id}`} className="escalate"><b>Escalated action</b> · {event.tool}<small>{event.reason} · {event.matched_rule}</small><span className="approval-actions"><button onClick={() => resolveEscalation(event.id, "approved")} disabled={busy}>Approve once</button><button className="reject" onClick={() => resolveEscalation(event.id, "rejected")} disabled={busy}>Reject</button></span></article>)}
+        {guardrails.filter((guardrail) => guardrail.status === "pending").map((guardrail) => <article key={`guardrail-${guardrail.id}`} className="escalate"><b>Guardrail candidate</b> · {guardrail.name}<small>{guardrail.reason}</small><span className="approval-actions"><button onClick={() => resolveGuardrail(guardrail.id, "approved")} disabled={busy}>Approve guardrail</button><button className="reject" onClick={() => resolveGuardrail(guardrail.id, "rejected")} disabled={busy}>Reject</button></span></article>)}
+        {assuranceCandidates.filter((candidate) => candidate.status === "pending_review").map((candidate) => <article key={`candidate-${candidate.case_id}`} className="escalate"><b>Regression candidate</b> · {candidate.title}<small>{candidate.summary}</small><span className="approval-actions"><button onClick={() => resolveAssuranceCandidate(candidate.case_id, "approved")} disabled={busy}>Approve for replay</button><button className="reject" onClick={() => resolveAssuranceCandidate(candidate.case_id, "rejected")} disabled={busy}>Reject</button></span></article>)}
+      </div>}
     </section>
     <section id="command" className="panel command-panel">
       <div className="section-kicker">01 · Define &amp; authorize</div>

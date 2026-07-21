@@ -170,6 +170,40 @@ input:focus-visible {
 
 .overview-card.review-needed { border-color: #c48e37; }
 
+.review-queue { border-color: #4f4166; }
+
+.review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.review-count {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #3a4c71;
+  border-radius: 999px;
+  color: #b4c2df;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.review-count.pending {
+  border-color: #c48e37;
+  background: #3d2a14;
+  color: #ffd478;
+}
+
+.empty-review {
+  margin: 1rem 0 0;
+  padding: 0.85rem;
+  border: 1px dashed #384965;
+  border-radius: 10px;
+  color: #aebcda;
+}
+
+.review-list { margin-top: 1rem; }
+
 .panel {
   position: relative;
   margin-top: 1.25rem;

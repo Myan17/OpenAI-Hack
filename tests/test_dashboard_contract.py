@@ -33,5 +33,7 @@ def test_dashboard_exposes_data_backed_operations_overview() -> None:
         "Decision volume",
         "Pending review",
         "Evidence posture",
+        "Review queue",
+        "No pending local reviews.",
     ):
         assert contract in source
