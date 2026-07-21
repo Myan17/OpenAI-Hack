@@ -1,0 +1,52 @@
+name: Deploy public Interlock demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: GitHub Environment for this public demo
+        required: true
+        default: staging
+        type: choice
+        options: [staging]
+      deploy:
+        description: Create or update the staging public demo
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: ${{ inputs.deploy }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sign in with GitHub OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Install Container Apps tooling
+        run: az extension add --name containerapp --upgrade --yes
+      - name: Deploy local-fixture demo
+        id: deploy
+        run: |
+          FQDN=$(az containerapp up \
+            --name interlock-demo \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --location "${{ vars.AZURE_LOCATION }}" \
+            --source . \
+            --ingress external \
+            --target-port 8000 \
+            --env-vars INTERLOCK_STATIC_DIR=/app/web/out \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+          echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+      - name: Publish managed demo hostname
+        run: echo "https://${{ steps.deploy.outputs.fqdn }}"

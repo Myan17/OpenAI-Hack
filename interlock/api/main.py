@@ -1,6 +1,7 @@
 """Minimal HTTP surface for policy confirmation and the audit feed."""
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -9,6 +10,7 @@ import json
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from interlock.assurance.delta import compare_authority
@@ -485,6 +487,13 @@ def create_app(
             raise HTTPException(status_code=409, detail="Stored escalation no longer requires approval.")
         result = dispatch_after_approval(action, Sandbox(state.sandbox_root, reset=False))
         return {"event_id": event_id, "resolution": "approved", "result": result}
+
+    # The public demo container sets INTERLOCK_STATIC_DIR to the static Next.js
+    # export. Local development and API tests leave it unset, keeping the API
+    # surface and its injected test state unchanged.
+    static_dir = os.environ.get("INTERLOCK_STATIC_DIR")
+    if static_dir and Path(static_dir).is_dir():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="dashboard")
 
     return app
 

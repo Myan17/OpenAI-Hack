@@ -102,6 +102,18 @@ def test_health_endpoint_reports_api_ready(tmp_path: Path) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_public_demo_can_serve_static_dashboard_when_configured(tmp_path: Path, monkeypatch) -> None:
+    dashboard = tmp_path / "dashboard"
+    dashboard.mkdir()
+    (dashboard / "index.html").write_text("<h1>Interlock demo</h1>", encoding="utf-8")
+    monkeypatch.setenv("INTERLOCK_STATIC_DIR", str(dashboard))
+
+    client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=static_compiler))
+
+    assert client.get("/").text == "<h1>Interlock demo</h1>"
+    assert client.get("/health").json() == {"status": "ok"}
+
+
 def test_simulation_endpoint_replays_actions_without_dispatching(tmp_path: Path) -> None:
     client = TestClient(create_app(EventLog(tmp_path / "events.sqlite"), policy_compiler=static_compiler))
     policy = Policy(task="inspect", allowed_tools={"inspect"})
