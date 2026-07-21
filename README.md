@@ -108,6 +108,13 @@ Interlock keeps generative and enforcement concerns intentionally separate:
 
 The enforcement engine imports no model, network client, database, or effect adapter. A dedicated purity test protects that invariant.
 
+## Built with Codex and GPT-5.6
+
+Codex accelerated implementation under the project rules in `AGENTS.md` and `rules.md`.
+GPT-5.6 drafts typed policies and powers the contained demo agent through the OpenAI Agents SDK.
+Neither Codex nor GPT-5.6 participates in the deterministic enforcement decision path.
+Human confirmation and policy-as-code remain the final authority for every governed tool action.
+
 ## Repository map
 
 | Path | Purpose |
