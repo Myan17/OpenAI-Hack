@@ -58,7 +58,7 @@ class TenantOutbox:
         require_role(context, "service", "tenant_admin")
         with sqlite3.connect(self._db_path) as connection:
             connection.execute(
-                "UPDATE tenant_callback_outbox SET status = 'delivered' WHERE id = ? AND tenant_id = ? AND workspace_id = ? AND status = 'pending'",
+                "UPDATE tenant_callback_outbox SET status = 'delivered', failure_class = NULL WHERE id = ? AND tenant_id = ? AND workspace_id = ? AND status = 'pending'",
                 (receipt_id, context.tenant_id, context.workspace_id),
             )
             row = connection.execute(

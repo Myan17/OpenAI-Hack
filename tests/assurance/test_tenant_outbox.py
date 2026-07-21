@@ -44,3 +44,14 @@ def test_outbox_quarantines_after_bounded_local_retry_failures(tmp_path) -> None
     assert quarantined is not None and (quarantined.status, quarantined.attempt_count, quarantined.failure_class) == ("dead_letter", 2, "unavailable")
     assert outbox.pending(context) == []
     assert outbox.dead_letters(context) == [quarantined]
+
+
+def test_outbox_clears_a_previous_failure_after_delivery(tmp_path) -> None:
+    outbox = TenantOutbox(tmp_path / "outbox.sqlite")
+    context = TenantContext(tenant_id="acme", workspace_id="prod", subject_id="service", role="service")
+    receipt = outbox.enqueue(context, idempotency_key="key-1", payload_digest="a" * 64)
+    outbox.record_failure(context, receipt.receipt_id, failure_class="unavailable", max_attempts=2)
+
+    delivered = outbox.mark_delivered(context, receipt.receipt_id)
+
+    assert delivered is not None and delivered.failure_class is None
