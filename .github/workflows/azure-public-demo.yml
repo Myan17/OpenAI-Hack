@@ -41,15 +41,6 @@ jobs:
             --tag "$IMAGE" .
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-      - name: Make image package public
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PACKAGE_NAME="${GITHUB_REPOSITORY#*/}"
-          gh api --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            "/user/packages/container/${PACKAGE_NAME,,}" \
-            -f visibility=public
       - name: Sign in with GitHub OIDC
         uses: azure/login@v2
         with:
