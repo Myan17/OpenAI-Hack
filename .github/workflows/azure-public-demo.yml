@@ -44,7 +44,6 @@ jobs:
             --source . \
             --ingress external \
             --target-port 8000 \
-            --env-vars INTERLOCK_STATIC_DIR=/app/web/out \
             --query properties.configuration.ingress.fqdn \
             --output tsv)
           echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
