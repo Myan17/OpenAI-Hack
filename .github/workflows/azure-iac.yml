@@ -1,0 +1,68 @@
+name: Azure infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Target GitHub Environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      apply:
+        description: Create or change Azure resources after a successful what-if
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Compile Bicep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the template only
+        run: az bicep build --file infra/main.bicep
+
+  deploy:
+    name: What-if and apply
+    needs: validate
+    if: ${{ inputs.apply }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sign in with GitHub OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Preview Azure changes
+        run: >-
+          az deployment group what-if
+          --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+          --template-file infra/main.bicep
+          --parameters
+          location="${{ vars.AZURE_LOCATION }}"
+          environment="${{ inputs.target }}"
+          postgresServerName="${{ vars.POSTGRES_SERVER_NAME }}"
+          registryName="${{ vars.REGISTRY_NAME }}"
+      - name: Apply approved Azure changes
+        run: >-
+          az deployment group create
+          --name "interlock-${{ inputs.target }}-${{ github.run_id }}"
+          --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+          --template-file infra/main.bicep
+          --parameters
+          location="${{ vars.AZURE_LOCATION }}"
+          environment="${{ inputs.target }}"
+          postgresServerName="${{ vars.POSTGRES_SERVER_NAME }}"
+          registryName="${{ vars.REGISTRY_NAME }}"
