@@ -18,6 +18,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  packages: write
 
 jobs:
   deploy:
@@ -26,6 +27,29 @@ jobs:
     environment: ${{ inputs.target }}
     steps:
       - uses: actions/checkout@v4
+      - name: Build and publish public demo image
+        id: image
+        env:
+          REGISTRY: ghcr.io
+          IMAGE_NAME: ${{ github.repository }}
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME,,}:demo-${GITHUB_SHA}"
+          echo "${{ github.token }}" | docker login "$REGISTRY" \
+            --username "$GITHUB_ACTOR" --password-stdin
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --tag "$IMAGE" .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Make image package public
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PACKAGE_NAME="${GITHUB_REPOSITORY#*/}"
+          gh api --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "/user/packages/container/${PACKAGE_NAME,,}" \
+            -f visibility=public
       - name: Sign in with GitHub OIDC
         uses: azure/login@v2
         with:
@@ -34,16 +58,27 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - name: Install Container Apps tooling
         run: az extension add --name containerapp --upgrade --yes
-      - name: Deploy local-fixture demo
+      - name: Deploy public local-fixture demo
         id: deploy
         run: |
-          az containerapp up \
+          if az containerapp show \
             --name interlock-demo \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --location "${{ vars.AZURE_LOCATION }}" \
-            --source . \
-            --ingress external \
-            --target-port 8000
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" >/dev/null 2>&1; then
+            az containerapp update \
+              --name interlock-demo \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --image "${{ steps.image.outputs.image }}"
+          else
+            az containerapp create \
+              --name interlock-demo \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --environment interlock-demo-env \
+              --image "${{ steps.image.outputs.image }}" \
+              --ingress external \
+              --target-port 8000 \
+              --min-replicas 1 \
+              --max-replicas 1
+          fi
           FQDN=$(az containerapp show \
             --name interlock-demo \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
