@@ -346,9 +346,11 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
-  return <main>
-    <header><p className="eyebrow">OpenAI Build Week · Developer Tools</p><h1>Interlock</h1><p>Deterministic circuit breaker for autonomous agent actions.</p></header>
-    <section className="panel">
+  return <main className="app-shell">
+    <nav className="topbar" aria-label="Interlock navigation"><a href="#command">Interlock<span>●</span></a><div><a href="#activity">Live activity</a><a href="#assurance">Assurance</a></div></nav>
+    <header className="hero"><p className="eyebrow">OpenAI Build Week · Developer Tools</p><h1>Control every <em>agent action.</em></h1><p>Interlock is the deterministic safety layer between an autonomous agent and the tools it can affect.</p><div className="trust-row"><span>● Deterministic engine</span><span>● Sandbox mode</span><span>● Evidence-ready</span></div></header>
+    <section id="command" className="panel command-panel">
+      <div className="section-kicker">01 · Define &amp; authorize</div>
       <label htmlFor="task">Task</label>
       <textarea id="task" value={task} onChange={(event) => setTask(event.target.value)} />
       <div className="actions">
@@ -362,7 +364,7 @@ export default function Page() {
       <p className="status" aria-live="polite">{status}</p>
       {draft && <><label htmlFor="policy-json">Editable policy draft</label><textarea id="policy-json" className="policy-json" value={policyJson} onChange={(event) => setPolicyJson(event.target.value)} /></>}
     </section>
-    <section className="panel"><h2>Policy simulator</h2>
+    <section className="panel"><div className="section-kicker">02 · Prove the boundary</div><h2>Policy simulator</h2>
       {!simulation ? <p>Replay the built-in staging developer trace to measure policy coverage before any action is dispatched.</p> : <>
         <div className="metrics">
           <article><b>{simulation.metrics.allowed_safe}</b><span> safe actions allowed</span></article>
@@ -376,7 +378,7 @@ export default function Page() {
         </article>)}
       </>}
     </section>
-    <section className="panel"><h2>Learning guardrails</h2>
+    <section id="assurance" className="panel"><div className="section-kicker">03 · Assurance workspace</div><h2>Learning guardrails</h2>
       <p>Verified incidents become reviewable candidates. Agents cannot activate their own guardrails.</p>
       <button onClick={draftDemoGuardrail} disabled={busy}>Draft DROP TABLE guardrail</button>
       {guardrails.length === 0 ? <p>No learned guardrails yet.</p> : guardrails.map((guardrail) => <article key={guardrail.id} className={guardrail.status === "approved" ? "allow" : guardrail.status === "rejected" ? "halt" : "escalate"}>
@@ -408,7 +410,7 @@ export default function Page() {
         <b>{fixtureAdapter.callback.action.toUpperCase()}</b> · {fixtureAdapter.callback.verdict.toUpperCase()}<small>Reasons: {fixtureAdapter.callback.reason_codes.join(", ")} · evidence: <code>{fixtureAdapter.callback.evidence_digest}</code></small>
       </article>}
     </section>
-    <section className="panel"><h2>Live verdicts</h2>
+    <section id="activity" className="panel"><div className="section-kicker">Live · Decision stream</div><h2>Live verdicts</h2>
       {events.length === 0 ? <p>No tool calls yet.</p> : events.map((event) => <article key={event.id} className={event.decision}>
         <b>{event.decision.toUpperCase()}</b> · {event.tool} — {event.reason} <small>{event.matched_rule}</small>
         <code className="action-payload">{event.args_json}</code>

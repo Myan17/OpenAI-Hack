@@ -1,106 +1,162 @@
 # Interlock
 
-Interlock is a deterministic circuit breaker for autonomous-agent tool calls. It gives an agent
-only a confirmed, least-privilege policy; then it decides every proposed action with plain,
-reproducible policy-as-code—never another model.
+> Deterministic authorization for autonomous-agent tool calls.
 
-> The seatbelt for AI agents: known authorized reads stay fast; unknown, forbidden, and
-> out-of-intent actions stop before they touch a tool.
+![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)
+![Next.js 15](https://img.shields.io/badge/Next.js-15-111111?logo=nextdotjs&logoColor=white)
+![License](https://img.shields.io/badge/status-hackathon%20prototype-8dabff)
 
-## Why it exists
+Interlock is a local-first control plane that sits between an AI agent and the tools it can affect. A model may propose a least-privilege policy, but a human must confirm it and a deterministic engine decides every subsequent action. Interlock is designed to make agent behavior inspectable, replayable, and safe to demo without granting a model authority over the enforcement boundary.
 
-Giving an agent tools means giving it the ability to change databases, write files, and move
-money. Prompt instructions alone are not an authorization boundary: an agent can misunderstand
-them or encounter adversarial text. Interlock reconciles each actual tool action with the
-human-confirmed scope instead of trying to classify whether a prompt "looks malicious."
+**The core promise:** authorized reads stay fast; malformed, forbidden, out-of-scope, or irreversible actions are stopped or escalated before an effect is dispatched.
 
-## The contract
+## Why Interlock
 
-1. **Intent, identity, and assets.** A typed policy defines permitted tools, database
-   operations/tables, filesystem roots, GitHub operations/repositories, budget, forbidden
-   patterns, agent identity, delegated human principal, environment, asset scope, criticality,
-   and expiry.
-2. **Known reads stay frictionless.** A recognized, authorized read is allowed immediately.
-   Unknown, malformed, disallowed, and forbidden calls fail closed.
-3. **The verifier is deterministic.** GPT-5.6 may draft a policy once. It is not imported by,
-   called by, or consulted by the enforcement engine.
+Agent prompts are not an authorization system. They can be misunderstood, overridden by adversarial text, or silently broadened by a tool call. Interlock reconciles the _actual proposed action_ with a typed, human-confirmed policy instead of asking another model whether the prompt appears safe.
 
-```text
-task ──▶ GPT-5.6 policy draft ──▶ human confirms Policy
-                                        │
-GPT-5.6 agent ── tool call ──▶ deterministic Interlock engine ──▶ sandbox effect
-                                   │             │
-                                   │             └─ allow / halt / escalate
-                                   └─ SQLite event log ─▶ FastAPI SSE ─▶ Next.js dashboard
+```mermaid
+flowchart LR
+  T[Task] --> D[Model drafts a policy]
+  D --> H[Human confirms scope]
+  A[Agent proposes tool action] --> E[Deterministic engine]
+  H --> E
+  E -->|ALLOW| S[Local sandbox effect]
+  E -->|HALT| L[Append-only verdict log]
+  E -->|ESCALATE| R[Human decision]
+  L --> UI[FastAPI SSE + Next.js command center]
+  R --> E
 ```
 
-The only effects in the demo are a local SQLite fixture, a contained local directory, and an
-in-memory mock ledger. There is no shell tool, network effect, real transfer, or real database.
+## What the demo proves
 
-## Run it
+| Capability | What Interlock does | Boundary |
+| --- | --- | --- |
+| Least-privilege policy | Builds and displays a typed policy, then requires explicit confirmation | A policy draft is not authority |
+| Deterministic enforcement | Decides each tool call with policy-as-code | The enforcement engine never consults an LLM |
+| Attack containment | Injects a destructive prompt to demonstrate an explicit halt | No real destructive operation is performed |
+| Trace simulation | Replays labeled developer-agent steps and reports coverage and friction | Simulation never dispatches effects |
+| Learning guardrails | Captures verified patterns as human-reviewable candidates | Agents cannot activate their own guardrails |
+| Assurance memory | Replays approved failure cases and generates verifiable local evidence | Advisory only; no runtime mutation |
+| Multica fixture adapter | Previews a typed local callback and quarantine decision | No Multica daemon, API, or network call |
 
-Requirements: Python 3.13, Node 20+, and an OpenAI API key for the live agent and policy-draft
-calls.
+Every visible effect is deliberately contained: local SQLite fixtures, a contained local directory, and an in-memory mock ledger. The demo has no shell execution, network effect, real transfer, real database, external task callback, or deployed Azure workload.
+
+## Experience the demo
+
+Start the backend and dashboard, then follow the numbered workflow in the command center:
+
+1. **Draft a policy** for the default developer task.
+2. **Review and confirm** the editable least-privilege JSON policy.
+3. **Simulate the developer trace** to inspect safe actions allowed, unsafe actions stopped, false blocks, unsafe misses, and impacted sessions.
+4. **Run the safety demo** or turn on **Add an unsafe instruction** and run the guarded agent. The live stream shows the allowed read and deterministic halt.
+5. Use the **Assurance workspace** to review a candidate guardrail, replay an approved regression fixture, and verify a fixture-only evidence bundle.
+
+The dashboard is intentionally an operator-facing command center: the primary path appears first, and release assurance, local evidence, and adapter previews remain visible as advanced capabilities—not hidden model behavior.
+
+## Quick start
+
+### Prerequisites
+
+- Python 3.13+
+- Node.js 20+
+- An OpenAI API key **only** if you want live policy-draft and agent calls
 
 ```bash
+git clone git@github.com:Myan17/OpenAI-Hack.git
+cd OpenAI-Hack
+
 python3.13 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
-cp .env.example .env # add OPENAI_API_KEY only for the live demo
-.venv/bin/python -m pytest -p no:cacheprovider -q
-.venv/bin/python -m eval.run
+
+# Optional for live model-backed policy draft / agent demo.
+cp .env.example .env
+# Add OPENAI_API_KEY to .env locally. Never commit it.
+
+.venv/bin/python -m uvicorn interlock.api.main:app --reload
 ```
 
-Start the backend in one terminal and the dashboard in another:
+In a second terminal:
 
 ```bash
-.venv/bin/python -m uvicorn interlock.api.main:app --reload
-cd web && npm install && npm run dev
+cd web
+npm install
+npm run dev
 ```
 
-Open `http://127.0.0.1:3000`, draft a policy, inspect it, explicitly confirm it, and run the
-guarded agent. The **Policy simulator** replays a labeled staging developer-agent trace without
-dispatching any effects, reporting safe actions allowed, unsafe actions stopped, false blocks,
-unsafe misses, and impacted sessions. The **Learning guardrails** panel records a candidate from
-a verified pattern; only a human-approved candidate is composed into future policies. The **Inject
-attack prompt** control intentionally adds a `DROP TABLE` / transfer instruction to the agent
-prompt; the event feed should show the deterministic halts.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
-In-scope irreversible actions deliberately emit `ESCALATE` rather than running automatically.
-The dashboard’s **Approve** and **Reject** controls resolve the exact stored action only once;
-approval re-validates it against its persisted policy before resuming the local sandbox effect.
+## Architecture
 
-## Evidence
+Interlock keeps generative and enforcement concerns separate:
 
-`python -m eval.run` exercises 25 golden scenarios: 10 authorized benign reads and 15
-adversarial, malformed, forbidden, or out-of-scope actions. The gate fails if any known-bad
-action is not halted or a known-good action is blocked.
+- **Drafting plane:** a model can translate a task into an inspectable policy draft.
+- **Authorization plane:** a human explicitly confirms the scope.
+- **Enforcement plane:** pure, deterministic policy-as-code returns `ALLOW`, `HALT`, or `ESCALATE` for the concrete tool call.
+- **Effect plane:** only a verdict that passes the boundary may reach the local sandbox implementation.
+- **Evidence plane:** verdicts, replay results, lifecycle state, and tamper-evident evidence bundles support audit and regression control.
 
-The engine purity test imports each `interlock.engine` module in a fresh process and asserts that
-no model or network client is pulled into the enforcement path. Simulator traces are evaluated by
-the same pure decision engine and never reach tool dispatch.
+The enforcement engine is intentionally pure: it imports no model or network client. A dedicated purity test executes engine imports in a fresh process to preserve that invariant.
 
-## Developer-agent change control
+## Verification
 
-The **Assurance memory** panel is an additive, report-only release-control path. A verified
-failure can be captured as an assurance candidate, but it has no policy or prompt authority.
-Only a human reviewer can make it an active replay case. The assurance API can then compare two
-typed release manifests, replay a labeled trace through the existing no-effect simulator, and
-produce a tamper-evident release evidence bundle.
+Run the local quality gate before changing policy, workflow, or UI behavior:
 
-The local verifier is suitable for CI and does not contact the API server:
+```bash
+.venv/bin/python -m pytest -p no:cacheprovider -q
+.venv/bin/python -m eval.run
+cd web && npm run build
+```
+
+`eval.run` executes 25 golden scenarios: 10 authorized benign reads and 15 adversarial, malformed, forbidden, or out-of-scope actions. The gate fails if any known-bad action is not halted or any known-good action is blocked.
+
+To validate a saved local evidence bundle without calling the API server:
 
 ```bash
 .venv/bin/python -m interlock.assurance.cli verify evidence-bundle.json
 ```
 
-It returns exit status `0` only for a valid bundle, `1` for tampered/invalid evidence, and `2`
-for unreadable or malformed input. This layer is advisory by design: it cannot change a runtime
-policy, invoke a model, or execute a tool action.
+It returns `0` for a valid bundle, `1` for tampered or invalid evidence, and `2` for unreadable or malformed input.
 
-## Limits
+## Deployment posture
 
-This is a hackathon proof, not a production security product. The sandbox and GitHub-style adapter
-are intentionally local, the policy compiler is conservative and falls back to deny-all on failure,
-and in-policy irreversible actions currently return `ESCALATE` rather than executing automatically.
-A production version would use cryptographic agent identity, a real MCP policy gateway, external
-asset inventory, signed approvals, and tamper-evident audit exports.
+The repository contains an Azure-oriented, multi-tenant deployment foundation and an OIDC workflow contract. It is intentionally **not a live production deployment**.
+
+- The Bicep template is a parameterized, non-deployed foundation.
+- GitHub Actions uses OIDC and avoids client secrets.
+- Staging and production require separate GitHub Environments and resource groups.
+- A `what-if` runs before an explicit infrastructure apply.
+- Multica integration is fixture-only and advisory; it does not contact a real endpoint.
+
+Read [the Azure OIDC deployment runbook](docs/AZURE_OIDC_DEPLOYMENT_RUNBOOK.md), [the multi-tenant execution plan](docs/AZURE_MULTITENANT_WATERFALL_EXECUTION_PLAN.md), and [the infrastructure README](infra/README.md) before enabling any apply step.
+
+## Repository guide
+
+| Path | Purpose |
+| --- | --- |
+| `interlock/engine/` | Pure deterministic policy and enforcement logic |
+| `interlock/api/` | FastAPI contracts, SSE feed, local orchestration |
+| `interlock/assurance/` | Replay, evidence, lifecycle, tenancy, and fixture adapter controls |
+| `interlock/tools/` | Local sandboxed effect adapters |
+| `web/` | Next.js operator command center |
+| `tests/` | Unit, contract, integration, purity, tenancy, and dashboard tests |
+| `eval/` | Golden-scenario safety evaluation |
+| `infra/` | Parameterized Azure foundation and guarded workflow |
+| `docs/` | Research, system design, runbooks, and Waterfall plans |
+
+## Security model and current limits
+
+Interlock is a hackathon prototype with real safety design constraints, not a claim of production certification. The dashboard and local adapters are safe by construction for the demo, but production use still needs reviewed infrastructure, real identity proofing, tenant onboarding, private networking, key management, external asset inventory, signed approvals, retention policy, and operational ownership.
+
+In-policy irreversible actions currently return `ESCALATE` rather than running automatically. The policy compiler is conservative and falls back to deny-all on failure. The current Multica adapter is intentionally local and fixture-only.
+
+## Contributing
+
+Keep changes deterministic, scoped, and verifiable:
+
+1. Preserve `interlock.engine` purity—no model, network, database, or effect adapter in the enforcement path.
+2. Add a focused test before or alongside any behavior change.
+3. Run the full Python suite, golden evaluation, and frontend build before committing.
+4. Do not add credentials, generated local data, or cloud identifiers to the repository.
+5. Treat Azure, Entra, GitHub OIDC, Multica endpoints, and any external effect as separately authorized operations.
+
+For the complete design and delivery record, start with [the master Waterfall plan](docs/WATERFALL_MASTER_PLAN.md) and [the demo guide](docs/DEMO.md).
