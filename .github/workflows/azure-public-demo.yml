@@ -37,13 +37,16 @@ jobs:
       - name: Deploy local-fixture demo
         id: deploy
         run: |
-          FQDN=$(az containerapp up \
+          az containerapp up \
             --name interlock-demo \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --location "${{ vars.AZURE_LOCATION }}" \
             --source . \
             --ingress external \
-            --target-port 8000 \
+            --target-port 8000
+          FQDN=$(az containerapp show \
+            --name interlock-demo \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --query properties.configuration.ingress.fqdn \
             --output tsv)
           echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
