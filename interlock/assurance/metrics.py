@@ -22,7 +22,7 @@ class AssuranceMetrics:
     def record(self, outcome: str) -> None:
         """Record one approved aggregate outcome label without attached user data."""
 
-        if not outcome or ":" in outcome and outcome.split(":", 1)[0] not in {"report", "replay", "candidate", "adapter"}:
+        if not outcome or ":" in outcome and outcome.split(":", 1)[0] not in {"report", "replay", "candidate", "adapter", "tenant"}:
             raise ValueError("metric outcome must be a supported aggregate label")
         self._counters[outcome] += 1
 
