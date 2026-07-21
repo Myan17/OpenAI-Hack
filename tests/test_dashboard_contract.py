@@ -37,5 +37,7 @@ def test_dashboard_exposes_data_backed_operations_overview() -> None:
         "No pending local reviews.",
         "Policy authority",
         "Live decision stream",
+        "Preview authority diff",
+        "Evidence workspace",
     ):
         assert contract in source

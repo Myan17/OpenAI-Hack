@@ -64,6 +64,7 @@ export default function Page() {
   const [guardrails, setGuardrails] = useState<Guardrail[]>([]);
   const [assuranceCandidates, setAssuranceCandidates] = useState<AssuranceCandidate[]>([]);
   const [evidence, setEvidence] = useState<ReleaseEvidence | null>(null);
+  const [authorityDelta, setAuthorityDelta] = useState<AuthorityDelta | null>(null);
   const [evidenceVerified, setEvidenceVerified] = useState<boolean | null>(null);
   const [fixtureAdapter, setFixtureAdapter] = useState<FixtureAdapterResult | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -324,6 +325,36 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
+  async function previewAuthorityDiff() {
+    if (!draft) return;
+    setBusy(true);
+    try {
+      const authority = {
+        principals: draft.allowed_agent_ids,
+        tools: draft.allowed_tools,
+        filesystem_roots: draft.allowed_roots,
+        db_operations: draft.allowed_db_ops,
+        db_tables: draft.allowed_db_tables,
+        github_operations: draft.allowed_github_operations,
+        github_repositories: draft.allowed_github_repositories,
+        environments: draft.allowed_environments,
+        spend_cap_cents: draft.spend_cap_cents,
+        irreversible_actions_require_approval: true,
+      };
+      const result = await requestJson<AuthorityDelta>("/assurance/diff", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseline: { release_id: "deny-all-baseline", source: "dashboard:local", components: { policy: "a".repeat(64) }, authority: {} },
+          candidate: { release_id: "policy-draft", source: "dashboard:local", components: { policy: "b".repeat(64) }, authority },
+        }),
+      });
+      setAuthorityDelta(result);
+      setStatus("Authority diff prepared locally against a deny-all baseline. It is advisory and cannot change runtime enforcement.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not prepare authority diff.");
+    } finally { setBusy(false); }
+  }
+
   async function verifyEvidenceReport() {
     if (!evidence) return;
     setBusy(true);
@@ -380,7 +411,7 @@ export default function Page() {
   const visibleEvents = events.filter((event) => eventFilter === "all" || event.decision === eventFilter);
 
   return <main className="app-shell">
-    <nav className="topbar" aria-label="Interlock navigation"><a href="#overview">Interlock<span>●</span></a><div><a href="#overview">Overview</a><a href="#review">Review queue</a><a href="#command">Policy studio</a><a href="#activity">Live activity</a><a href="#assurance">Assurance</a></div></nav>
+    <nav className="topbar" aria-label="Interlock navigation"><a href="#overview">Interlock<span>●</span></a><div><a href="#overview">Overview</a><a href="#review">Review queue</a><a href="#command">Policy studio</a><a href="#activity">Live activity</a><a href="#assurance">Assurance</a><a href="#evidence">Evidence</a></div></nav>
     <header className="hero"><p className="eyebrow">OpenAI Build Week · Developer Tools</p><h1>Control every <em>agent action.</em></h1><p>Interlock is the deterministic safety layer between an autonomous agent and the tools it can affect.</p><div className="trust-row"><span>● Deterministic engine</span><span>● Sandbox mode</span><span>● Evidence-ready</span></div></header>
     <section id="overview" className="overview" aria-labelledby="overview-title">
       <div className="overview-heading"><div><p className="section-kicker">Operations center</p><h2 id="overview-title">Safety overview</h2></div><p className="data-boundary">Local fixture data · {runtimeHealth?.status === "ok" ? "Runtime ready" : "Runtime unavailable"} · {assuranceHealth?.mode ?? "assurance status unavailable"}</p></div>
@@ -393,12 +424,12 @@ export default function Page() {
     </section>
     <section className="policy-summary" aria-labelledby="policy-summary-title">
       <div><p className="section-kicker">Enforcement boundary</p><h2 id="policy-summary-title">Policy authority</h2><p>{!draft ? "Draft a policy to inspect the concrete authority Interlock will enforce." : policyConfirmed ? "Confirmed policy is enforcing the authority shown below." : "Draft policy is visible for review but has no authority until confirmed."}</p></div>
-      {!draft ? <div className="authority-empty">No confirmed policy</div> : <div className="authority-grid">
+      {!draft ? <div className="authority-empty">No confirmed policy</div> : <div className="authority-wrap"><div className="authority-grid">
         <article><span>Tools</span><b>{draft.allowed_tools.length}</b><small>{draft.allowed_tools.join(", ") || "none"}</small></article>
         <article><span>Database tables</span><b>{draft.allowed_db_tables.length}</b><small>{draft.allowed_db_tables.join(", ") || "none"}</small></article>
         <article><span>Forbidden patterns</span><b>{draft.forbidden_patterns.length}</b><small>{draft.forbidden_patterns.join(", ") || "none"}</small></article>
         <article><span>Irreversible actions</span><b>Escalate</b><small>Human review is required before local execution.</small></article>
-      </div>}
+      </div><div className="authority-actions"><button onClick={previewAuthorityDiff} disabled={busy}>Preview authority diff</button>{authorityDelta && <small>{authorityDelta.has_expansion ? "Candidate expands authority from the local deny-all baseline." : "No authority expansion detected."}</small>}</div></div>}
     </section>
     <section id="review" className="panel review-queue" aria-labelledby="review-title">
       <div className="review-heading"><div><p className="section-kicker">Reviewer attention</p><h2 id="review-title">Review queue</h2></div><span className={pendingReview > 0 ? "review-count pending" : "review-count"}>{pendingReview} pending</span></div>
@@ -454,8 +485,8 @@ export default function Page() {
         {candidate.status === "active" && <span className="approval-actions"><button onClick={() => attachAndReplayAssuranceFixture(candidate.case_id)} disabled={busy}>Attach &amp; replay fixture</button><button className="reject" onClick={() => retireAssuranceCandidate(candidate.case_id)} disabled={busy}>Retire case</button></span>}
       </article>)}
     </section>
-    <section className="panel"><h2>Release evidence</h2>
-      <p>Generate a fixture-only authority comparison and verify its tamper-evident digest. This is advisory and never dispatches an agent tool.</p>
+    <section id="evidence" className="panel"><div className="section-kicker">Report-only release control</div><h2>Evidence workspace</h2>
+      <p><strong>Release evidence</strong> is generated from a fixture-only authority comparison and verified with a tamper-evident digest. This is advisory and never dispatches an agent tool.</p>
       <div className="actions"><button onClick={generateEvidenceReport} disabled={busy}>Generate local evidence report</button><button onClick={verifyEvidenceReport} disabled={busy || !evidence}>Verify evidence bundle</button></div>
       {!evidence ? <p>No local evidence report generated yet.</p> : <article className={evidence.verdict === "pass" ? "allow" : evidence.verdict === "fail" ? "halt" : "escalate"}>
         <b>{evidence.verdict.toUpperCase()}</b> · {evidence.baseline.release_id} → {evidence.candidate.release_id}<small>Authority expansion: {evidence.delta.has_expansion ? "detected" : "none"} · replay cases: {evidence.replays.length} · digest: <code>{evidence.digest}</code></small>

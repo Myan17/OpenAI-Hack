@@ -14,6 +14,27 @@ Interlock is a local-first control plane that sits between an AI agent and the t
 
 Agent prompts are not an authorization system. They can be misunderstood, overridden by adversarial text, or silently broadened by a tool call. Interlock reconciles the _actual proposed action_ with a typed, human-confirmed policy instead of asking another model whether the prompt appears safe.
 
+## Where Interlock fits
+
+Interlock is deliberately narrower than an agent platform and different from an investigation system:
+
+| System concern | Interlock's role | Explicit non-goal |
+| --- | --- | --- |
+| Agent work coordination | Govern each proposed tool action, preserve the decision trail, and route irreversible actions to a human | Issue routing, agent staffing, or task-board replacement |
+| Agent reasoning | Allow a model to propose a policy or task action | Let a model validate, approve, or override its own authority |
+| Evidence and assurance | Replay safety cases and compare typed authority in report-only mode | Claim a release is safe without replay/evidence results |
+| External orchestration | Produce a strict fixture-only advisory callback contract | Connect to a live Multica daemon, task board, or webhook |
+
+This makes Interlock complementary to [Multica](https://github.com/multica-ai/multica), which focuses on managing coding-agent work, and conceptually aligned with [CausalOps](https://github.com/darshgarg7/CausalOps), whose design separates model proposals from evidence-backed validation. Interlock applies that separation to **runtime authorization**: a model can propose; deterministic policy and human approval decide what can happen.
+
+## In 60 seconds
+
+1. Open the **Safety overview** and verify that local runtime and report-only assurance are available.
+2. Use **Policy studio** to draft a task policy. The **Policy authority** surface shows the exact tool, database, and pattern scope before it has authority.
+3. Confirm the policy, then run the local safety demo. The **Live decision stream** exposes `ALLOW`, `HALT`, and `ESCALATE` outcomes with the matched policy reason.
+4. Open **Review queue** to resolve any human-owned escalation or candidate review.
+5. Generate an **Evidence workspace** bundle to verify a local replay result and authority delta without dispatching an external effect.
+
 ```mermaid
 flowchart LR
   T[Task] --> D[Model drafts a policy]

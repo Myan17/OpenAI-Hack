@@ -224,6 +224,20 @@ input:focus-visible {
   gap: 0.65rem;
 }
 
+.authority-wrap { min-width: 0; }
+
+.authority-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.75rem;
+}
+
+.authority-actions button {
+  padding: 0.48rem 0.7rem;
+  font-size: 0.78rem;
+}
+
 .authority-grid article,
 .authority-empty {
   min-height: 105px;
