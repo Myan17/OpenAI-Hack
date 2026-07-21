@@ -41,6 +41,9 @@ type ReleaseEvidence = {
   verdict: "pass" | "fail" | "inconclusive"; digest: string;
 };
 type FixtureAdapterResult = { evidence: ReleaseEvidence; callback: { verdict: string; action: string; reason_codes: string[]; evidence_digest: string } };
+type Health = { status: string };
+type AssuranceHealth = { status: string; mode: string };
+type AssuranceMetrics = { counters: Record<string, number> };
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -62,6 +65,9 @@ export default function Page() {
   const [evidenceVerified, setEvidenceVerified] = useState<boolean | null>(null);
   const [fixtureAdapter, setFixtureAdapter] = useState<FixtureAdapterResult | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
+  const [runtimeHealth, setRuntimeHealth] = useState<Health | null>(null);
+  const [assuranceHealth, setAssuranceHealth] = useState<AssuranceHealth | null>(null);
+  const [assuranceMetrics, setAssuranceMetrics] = useState<AssuranceMetrics | null>(null);
   const [status, setStatus] = useState("Draft a least-privilege policy to begin.");
   const [busy, setBusy] = useState(false);
   const [injectAttack, setInjectAttack] = useState(false);
@@ -91,6 +97,17 @@ export default function Page() {
     const refresh = () => requestJson<Run[]>("/runs").then(setRuns).catch(() => undefined);
     refresh();
     const timer = window.setInterval(refresh, 2_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      requestJson<Health>("/health").then(setRuntimeHealth).catch(() => setRuntimeHealth(null));
+      requestJson<AssuranceHealth>("/assurance/health").then(setAssuranceHealth).catch(() => setAssuranceHealth(null));
+      requestJson<AssuranceMetrics>("/assurance/metrics").then(setAssuranceMetrics).catch(() => setAssuranceMetrics(null));
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 5_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -346,9 +363,29 @@ export default function Page() {
     } finally { setBusy(false); }
   }
 
+  const decisions = {
+    allow: events.filter((event) => event.decision === "allow").length,
+    halt: events.filter((event) => event.decision === "halt").length,
+    escalate: events.filter((event) => event.decision === "escalate").length,
+  };
+  const activeRuns = runs.filter((run) => ["queued", "running", "pending"].includes(run.status)).length;
+  const pendingReview = decisions.escalate
+    + guardrails.filter((guardrail) => guardrail.status === "pending").length
+    + assuranceCandidates.filter((candidate) => candidate.status === "pending_review").length;
+  const evidenceChecks = Object.values(assuranceMetrics?.counters ?? {}).reduce((total, count) => total + count, 0);
+
   return <main className="app-shell">
-    <nav className="topbar" aria-label="Interlock navigation"><a href="#command">Interlock<span>●</span></a><div><a href="#activity">Live activity</a><a href="#assurance">Assurance</a></div></nav>
+    <nav className="topbar" aria-label="Interlock navigation"><a href="#overview">Interlock<span>●</span></a><div><a href="#overview">Overview</a><a href="#command">Policy studio</a><a href="#activity">Live activity</a><a href="#assurance">Assurance</a></div></nav>
     <header className="hero"><p className="eyebrow">OpenAI Build Week · Developer Tools</p><h1>Control every <em>agent action.</em></h1><p>Interlock is the deterministic safety layer between an autonomous agent and the tools it can affect.</p><div className="trust-row"><span>● Deterministic engine</span><span>● Sandbox mode</span><span>● Evidence-ready</span></div></header>
+    <section id="overview" className="overview" aria-labelledby="overview-title">
+      <div className="overview-heading"><div><p className="section-kicker">Operations center</p><h2 id="overview-title">Safety overview</h2></div><p className="data-boundary">Local fixture data · {runtimeHealth?.status === "ok" ? "Runtime ready" : "Runtime unavailable"} · {assuranceHealth?.mode ?? "assurance status unavailable"}</p></div>
+      <div className="overview-grid">
+        <article className="overview-card"><span>Decision volume</span><b>{events.length}</b><small>{decisions.allow} allowed · {decisions.halt} halted · {decisions.escalate} escalated</small></article>
+        <article className="overview-card"><span>Active runs</span><b>{activeRuns}</b><small>{runs.length} recorded local runs</small></article>
+        <article className={pendingReview > 0 ? "overview-card review-needed" : "overview-card"}><span>Pending review</span><b>{pendingReview}</b><small>Escalations and reviewer-governed candidates</small></article>
+        <article className="overview-card"><span>Evidence posture</span><b>{evidenceChecks}</b><small>{assuranceHealth?.status === "ok" ? "Report-only assurance available" : "Assurance status unavailable"}</small></article>
+      </div>
+    </section>
     <section id="command" className="panel command-panel">
       <div className="section-kicker">01 · Define &amp; authorize</div>
       <label htmlFor="task">Task</label>
