@@ -99,6 +99,12 @@ Open the [public Interlock demo](https://interlock-demo.agreeablestone-318f5583.
 
 The hosted instance intentionally begins with an empty fixture dataset. Zero counters are expected until the safety demo generates contained `ALLOW` and `HALT` decisions. It is a public staging demonstration—not a customer-data, production, or live-Multica environment.
 
+## Quick setup
+
+1. Clone the repository and run `docker compose up --build` from its root.
+2. Open `http://127.0.0.1:8000` to use the contained local demo.
+3. Run `docker compose down` when finished; no API key is required for the deterministic safety demo.
+
 ## Architecture
 
 Interlock keeps generative and enforcement concerns intentionally separate:
